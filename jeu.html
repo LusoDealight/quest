@@ -1,0 +1,1025 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<title>Quest · La Tour</title>
+<meta name="theme-color" content="#2f6b45">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Pixelify+Sans:wght@500;700&display=swap">
+<style>
+/* Jeu Quest : la Ville (menus) + l'étage 1 (carte en canvas). Ouvert uniquement pendant une pause du minuteur. */
+:root {
+  --bg: #eef2ec; --surface: #ffffff; --surface-2: #e3eae1; --line: #cdd8cb;
+  --fg: #1c2a22; --muted: #5b6d61; --accent: #2f7d4a; --accent-ink: #ffffff;
+  --gold: #b9830d; --gold-soft: #f6e3b0; --sky: #3d7fa6; --sky-soft: #d6e8f2;
+  --danger: #b3412e; --hp: #c8473a;
+  --r-common: #6b7a70; --r-rare: #2f74c0; --r-epic: #8a4fc2; --r-legend: #c47f00;
+  --font-display: "Pixelify Sans", "Courier New", ui-monospace, monospace;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 10px; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111915; --surface: #18221d; --surface-2: #202d26; --line: #2c3b33;
+    --fg: #e3ece5; --muted: #93a699; --accent: #64c07f; --accent-ink: #0d1a12;
+    --gold: #f0c04a; --gold-soft: #3b3218; --sky: #7cbde0; --sky-soft: #1b3240;
+    --danger: #ec7b66; --hp: #ec7b66;
+    --r-common: #a3b1a8; --r-rare: #6eaef0; --r-epic: #c08ff0; --r-legend: #f0c04a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111915; --surface: #18221d; --surface-2: #202d26; --line: #2c3b33;
+  --fg: #e3ece5; --muted: #93a699; --accent: #64c07f; --accent-ink: #0d1a12;
+  --gold: #f0c04a; --gold-soft: #3b3218; --sky: #7cbde0; --sky-soft: #1b3240;
+  --danger: #ec7b66; --hp: #ec7b66;
+  --r-common: #a3b1a8; --r-rare: #6eaef0; --r-epic: #c08ff0; --r-legend: #f0c04a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; -webkit-tap-highlight-color: transparent; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+.display { font-family: var(--font-display); letter-spacing: .02em; }
+.muted { color: var(--muted); }
+.label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.num { font-variant-numeric: tabular-nums; }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 9px 14px; border-radius: 8px; font-weight: 600; text-decoration: none; color: var(--fg); display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.sky { background: var(--sky); color: var(--bg); border-color: var(--sky); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.small { padding: 5px 10px; font-size: 13px; }
+
+/* ---- Coque ---- */
+.shell { max-width: 720px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column;
+  padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.hud { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 8px; display: grid; gap: 6px; }
+.hud-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hud-top a { font-weight: 600; color: var(--muted); text-decoration: none; font-size: 14px; white-space: nowrap; }
+.pause-pill { background: var(--sky-soft); color: var(--sky); border-radius: 99px; padding: 2px 10px; font-weight: 700; font-size: 13px; white-space: nowrap; }
+.hud-stats { display: flex; align-items: center; gap: 14px; font-size: 14px; flex-wrap: wrap; }
+.hud-stats > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.hpbar { width: 84px; height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; display: inline-block; }
+.hpbar > i { display: block; height: 100%; background: var(--hp); transition: width .3s; }
+.bolt { width: 13px; height: 13px; flex: none; }
+.coin { width: 12px; height: 12px; border-radius: 50%; background: var(--gold); display: inline-block; box-shadow: inset -2px -2px 0 rgba(0,0,0,.18); }
+.chip { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 99px; background: var(--surface-2); color: var(--muted); }
+.chip.rested { background: var(--sky-soft); color: var(--sky); }
+main { flex: 1; padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 24px); display: grid; gap: 14px; align-content: start; }
+
+/* ---- Ville ---- */
+.town-banner { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: #8fd0ef; }
+.town-banner svg { display: block; width: 100%; height: auto; }
+.title-row { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
+.title-row h2 { font-family: var(--font-display); font-size: 26px; }
+.places { display: grid; gap: 10px; }
+.place { display: grid; grid-template-columns: 44px minmax(0,1fr) auto; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; text-align: left; width: 100%; }
+.place:hover { border-color: var(--muted); }
+.place h3 { font-size: 16px; }
+.place p { margin: 0; font-size: 13px; color: var(--muted); }
+.place .ico { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: var(--surface-2); }
+.place.gate { border-color: var(--accent); border-width: 2px; }
+.place.gate .ico { background: var(--accent); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; }
+.panel h3 { font-size: 16px; }
+.back { justify-self: start; }
+.acts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.act { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 10px; text-align: left; display: grid; gap: 2px; }
+.act b { font-size: 14px; }
+.act small { color: var(--muted); font-size: 12px; }
+.act:hover { border-color: var(--sky); }
+.big-count { font-family: var(--font-display); font-size: 56px; text-align: center; color: var(--sky); line-height: 1; }
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.item.eq { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.item .nm { font-weight: 700; overflow-wrap: anywhere; }
+.item .st { font-size: 13px; color: var(--muted); }
+.item .bt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: end; }
+.rar-0 { color: var(--r-common); } .rar-1 { color: var(--r-rare); } .rar-2 { color: var(--r-epic); } .rar-3 { color: var(--r-legend); }
+.skills { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.skills li { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 10px; align-items: start; }
+.skills li.off { opacity: .5; }
+.skills .pip { width: 10px; height: 10px; border-radius: 2px; background: var(--gold); margin-top: 6px; }
+.skills li.off .pip { background: var(--line); }
+.statline { display: flex; gap: 16px; flex-wrap: wrap; font-size: 14px; }
+.statline b { font-size: 18px; }
+.qlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.qlist li { display: grid; gap: 2px; }
+.qlist .done { color: var(--muted); text-decoration: line-through; }
+.hint { border-left: 3px solid var(--gold); padding: 6px 10px; background: var(--gold-soft); border-radius: 0 8px 8px 0; font-style: italic; }
+
+/* ---- Étage ---- */
+body.floor { overflow: hidden; }
+body.floor .shell { height: 100%; max-width: none; }
+body.floor main { padding: 0; position: relative; flex: 1; min-height: 0; display: block; }
+#stage { position: absolute; inset: 0; background: #2f7a3b; touch-action: none; }
+#stage canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+.floor-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; justify-content: space-between; align-items: end;
+  padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 10px); pointer-events: none; }
+.floor-bar > * { pointer-events: auto; }
+.floor-msg { flex: 1; min-width: 0; background: rgba(16,26,20,.82); color: #f1f5ef; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.floor-bar .btn { box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.floor-name { position: absolute; top: 10px; left: 12px; background: rgba(16,26,20,.78); color: #f1f5ef; font-family: var(--font-display); padding: 2px 10px; border-radius: 6px; font-size: 15px; pointer-events: none; }
+
+/* ---- Combat & fenêtres ---- */
+.sheet-bg { position: fixed; inset: 0; z-index: 40; background: rgba(10,16,12,.55); display: grid; align-items: end; justify-items: center; }
+.sheet { width: 100%; max-width: 560px; background: var(--surface); border-radius: 14px 14px 0 0; padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 16px); display: grid; gap: 12px; max-height: 92vh; overflow: auto; }
+@media (min-width: 600px) { .sheet-bg { align-items: center; } .sheet { border-radius: 14px; } }
+.sheet h2 { font-family: var(--font-display); font-size: 22px; }
+.arena { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; background: linear-gradient(#bfe6f7, #d9f1c9 60%, #79c257 60%); border-radius: 10px; padding: 10px; color: #1c2a22; }
+.fighter { display: grid; gap: 4px; justify-items: center; font-size: 13px; }
+.fighter canvas { width: 96px; height: 96px; image-rendering: pixelated; }
+.fighter .hpbar { width: 100%; max-width: 120px; background: rgba(0,0,0,.15); }
+.fighter.hit canvas { animation: hit .3s; }
+@keyframes hit { 0%,100% { transform: none; } 30% { transform: translateX(-6px); filter: brightness(2); } 60% { transform: translateX(5px); } }
+.intent { font-size: 12px; font-weight: 700; color: var(--danger); min-height: 18px; }
+.clog { font-size: 14px; min-height: 44px; display: grid; gap: 2px; }
+.clog div:not(:last-child) { color: var(--muted); }
+.cacts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cacts .btn { padding: 12px; }
+.loot { display: grid; gap: 6px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; }
+.lock { display: grid; gap: 14px; justify-items: center; text-align: center; padding: 28px 8px; }
+.lock svg { width: 120px; height: auto; }
+.lock h2 { font-family: var(--font-display); font-size: 26px; }
+.lock p { margin: 0; max-width: 40ch; }
+.toasts { position: fixed; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 92px); z-index: 60; display: grid; gap: 6px; justify-items: center; pointer-events: none; width: max-content; max-width: calc(100vw - 32px); }
+.toast { background: var(--fg); color: var(--bg); padding: 7px 14px; border-radius: 99px; font-weight: 600; font-size: 14px; animation: tin .25s ease; text-align: center; }
+@keyframes tin { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head><body>
+<div class="shell">
+  <header class="hud" id="hud">
+    <div class="hud-top">
+      <a href="./#quetes" aria-label="Retour à la todo list">← Todo list</a>
+      <span class="display" style="font-size:18px">La Tour</span>
+      <span class="pause-pill num" id="pause-pill">--:--</span>
+    </div>
+    <div class="hud-stats" id="hud-stats"></div>
+  </header>
+  <main id="view"></main>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="sheet-root"></div>
+
+<script>
+(() => {
+"use strict";
+/* ================= Lien avec la todo list =================
+   La todo list (index.html) garde son état dans localStorage["quest.v1"] : XP, minuteur, journal des cycles, succès.
+   Le jeu lit cet état sans le modifier, sauf pour débloquer les deux succès du jeu (boss, objet légendaire).
+   Son propre état vit dans localStorage["quest.game.v1"]. */
+const TODO_KEY = "quest.v1";
+const GAME_KEY = "quest.game.v1";
+const RANKS = [ // même table que la todo list
+  { name: "Recrue", xp: 0 }, { name: "Éclaireur", xp: 60 }, { name: "Aventurier", xp: 150 }, { name: "Vétéran", xp: 280 },
+  { name: "Champion", xp: 450 }, { name: "Héros", xp: 700 }, { name: "Légende de la Tour", xp: 1000 },
+];
+const SKILLS = [
+  { name: "Persévérance", game: "Chaque attaque enchaînée frappe 1 point plus fort (jusqu'à +2)." },
+  { name: "Vision claire", game: "La lanterne montre les fleurs de rosée de loin et l'intention des monstres en combat." },
+  { name: "Coup précis", game: "Une fois par combat : dégâts doublés." },
+  { name: "Garde", game: "Une fois par combat : bloque entièrement le prochain coup." },
+  { name: "Endurance", game: "Chaque cycle de focus donne 4 énergie au lieu de 3 ; réserve max 12." },
+  { name: "Élan", game: "Déplacement plus rapide, fuite toujours réussie, monter un étage coûte 1 énergie." },
+  { name: "Ascension", game: "+2 en attaque. Le sommet t'attend." },
+];
+const RARITY = ["Commun", "Rare", "Épique", "Légendaire"];
+const ITEM_NAMES = {
+  weapon: ["Bâton de saule", "Dague de rosée", "Lame des prés", "Épée de l'aube"],
+  armor:  ["Tunique de lin", "Gilet de cuir", "Cotte de mousse", "Armure du chêne ancien"],
+  charm:  ["Trèfle à quatre feuilles", "Galet poli", "Ambre de la prairie", "Cœur de slime royal"],
+};
+const SLOT_NAME = { weapon: "Arme", armor: "Armure", charm: "Talisman" };
+const ACTIVITIES = [
+  { id: "marcher",  name: "Marcher", desc: "Fais quelques pas, même dans le couloir." },
+  { id: "boire",    name: "Boire de l'eau", desc: "Un grand verre, sans écran." },
+  { id: "loin",     name: "Regarder au loin", desc: "Fixe un point à plus de 6 m, par la fenêtre." },
+  { id: "etirer",   name: "T'étirer", desc: "Épaules, nuque, dos." },
+  { id: "respirer", name: "Respirer", desc: "Inspire 4 s, expire 6 s." },
+];
+const REST_SECONDS = 60;
+const POTION_PRICE = 8, POTION_HEAL = 12;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const uid = () => Math.random().toString(36).slice(2, 10);
+const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+const fmt = ms => { const t = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+const todayKey = (d = new Date()) => { const z = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; };
+
+function readTodo() { try { return JSON.parse(localStorage.getItem(TODO_KEY)) || null; } catch (e) { return null; } }
+let TODO = readTodo();
+const xp = () => (TODO && TODO.xp) || 0;
+const rankIdx = () => { let i = 0; RANKS.forEach((r, k) => { if (xp() >= r.xp) i = k; }); return i; };
+const hasSkill = k => rankIdx() >= k;
+function totalCycles() { if (!TODO || !TODO.log) return 0; return Object.values(TODO.log).reduce((a, d) => a + (d.cycles || 0), 0); }
+function pauseInfo() {
+  const t = TODO && TODO.timer;
+  if (!t || t.phase !== "pause") return null;
+  const held = t.remaining != null;
+  const left = held ? t.remaining : t.endAt - Date.now();
+  if (left <= 0) return null;
+  return { id: String(t.startedAt), left, held, kind: t.kind };
+}
+function todoUnlock(id) { // succès partagés avec la todo list
+  try {
+    const d = readTodo(); if (!d) return;
+    d.ach = d.ach || {};
+    if (d.ach[id]) return;
+    d.ach[id] = todayKey();
+    localStorage.setItem(TODO_KEY, JSON.stringify(d));
+    TODO = d;
+    toast(`Succès : ${id === "boss" ? "Roi des slimes" : "Trouvaille légendaire"}`);
+  } catch (e) {}
+}
+
+/* ================= État du jeu ================= */
+function newGame() {
+  return {
+    v: 1, gold: 10, potions: 1, hp: null, train: 0,
+    energy: 3, cyclesSeen: null,
+    items: [], equip: { weapon: null, armor: null, charm: null },
+    pauseId: null, rested: false, rest: null,
+    pos: null,
+    q: { met: false, kills: 0, q1: false, flowers: [], q2: false, king: false, stairs: false, floor2: false },
+  };
+}
+let G;
+function loadGame() {
+  try { const raw = localStorage.getItem(GAME_KEY); if (raw) { const d = JSON.parse(raw); G = Object.assign(newGame(), d); G.q = Object.assign(newGame().q, d.q); return; } } catch (e) {}
+  G = newGame();
+}
+function save() { try { localStorage.setItem(GAME_KEY, JSON.stringify(G)); } catch (e) {} }
+loadGame();
+
+const itemById = id => G.items.find(i => i.id === id);
+const eq = slot => itemById(G.equip[slot]);
+function itemStat(it) {
+  const r = it.rarity, l = it.lvl;
+  if (it.slot === "weapon") return { atk: [1, 2, 4, 7][r] + l };
+  if (it.slot === "armor") return { def: [1, 2, 3, 5][r] + Math.floor((l + 1) / 2) };
+  return { hp: [3, 6, 10, 16][r] + 2 * l };
+}
+const statText = it => { const s = itemStat(it); return s.atk ? `+${s.atk} attaque` : s.def ? `+${s.def} défense` : `+${s.hp} PV max`; };
+const upCost = it => [5, 10, 20, 40][it.rarity] * (it.lvl + 1);
+const sellPrice = it => Math.round([3, 8, 20, 50][it.rarity] * (1 + it.lvl / 2));
+const maxTrain = () => 2 + rankIdx() * 2;
+const trainCost = () => 15 * (G.train + 1);
+function maxHp() { const c = eq("charm"); return 20 + 4 * rankIdx() + 3 * G.train + (c ? itemStat(c).hp : 0); }
+function atk() { const w = eq("weapon"); return 2 + G.train + (w ? itemStat(w).atk : 0) + (hasSkill(6) ? 2 : 0); }
+function def() { const a = eq("armor"); return a ? itemStat(a).def : 0; }
+const perCycle = () => (hasSkill(4) ? 4 : 3);
+const energyCap = () => (hasSkill(4) ? 12 : 10);
+
+function syncEnergy() {
+  const tot = totalCycles();
+  if (G.cyclesSeen == null || tot < G.cyclesSeen) { G.cyclesSeen = tot; save(); return; }
+  if (tot > G.cyclesSeen) {
+    const gain = (tot - G.cyclesSeen) * perCycle();
+    G.cyclesSeen = tot;
+    const before = G.energy;
+    G.energy = Math.min(energyCap(), G.energy + gain);
+    save();
+    if (G.energy > before) toast(`+${G.energy - before} énergie (cycles de focus)`);
+  }
+}
+function onNewPause(p) {
+  if (G.pauseId === p.id) return;
+  G.pauseId = p.id; G.rested = false; G.rest = null; G.pos = null;
+  G.hp = maxHp(); // la pause soigne
+  save();
+}
+function makeItem(rarity, slot) {
+  slot = slot || ["weapon", "armor", "charm"][rnd(0, 2)];
+  return { id: uid(), slot, rarity, lvl: 0, name: ITEM_NAMES[slot][rarity] };
+}
+function rollRarity(boss) {
+  const w = boss ? [0, 55, 35, 10] : G.rested ? [50, 32, 14, 4] : [70, 22, 7, 1];
+  let x = Math.random() * 100;
+  for (let i = 0; i < 4; i++) { if ((x -= w[i]) < 0) return i; }
+  return 0;
+}
+function giveItem(it) {
+  G.items.push(it);
+  if (!G.equip[it.slot]) G.equip[it.slot] = it.id;
+  if (it.rarity === 3) todoUnlock("legend");
+}
+
+/* ================= Interface commune ================= */
+function toast(html) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.innerHTML = html;
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
+const BOLT = `<svg class="bolt" viewBox="0 0 12 12"><path d="M7 0 1 7h4l-1 5 6-7H6z" fill="var(--gold)"/></svg>`;
+function renderHUD() {
+  const p = pauseInfo();
+  $("#pause-pill").textContent = p ? (p.held ? "Pause suspendue" : `Pause ${fmt(p.left)}`) : "Pas en pause";
+  const mh = maxHp(), hp = G.hp == null ? mh : Math.min(G.hp, mh);
+  $("#hud-stats").innerHTML = `
+    <span title="Points de vie"><span class="hpbar"><i style="width:${(hp / mh) * 100}%"></i></span><b class="num">${hp}/${mh}</b></span>
+    <span title="Énergie de combat">${BOLT}<b class="num">${G.energy}</b><span class="muted">/${energyCap()}</span></span>
+    <span title="Or"><i class="coin"></i><b class="num">${G.gold}</b></span>
+    <span class="chip">${esc(RANKS[rankIdx()].name)}</span>
+    ${G.rested ? `<span class="chip rested">Reposé</span>` : ""}`;
+}
+function sheet(html, opts = {}) {
+  const root = $("#sheet-root");
+  root.innerHTML = `<div class="sheet-bg"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+  if (opts.dismiss) root.querySelector(".sheet-bg").onclick = e => { if (e.target.classList.contains("sheet-bg")) closeSheet(); };
+  const f = root.querySelector("[data-focus]") || root.querySelector("button"); f && f.focus({ preventScroll: true });
+}
+function closeSheet() { $("#sheet-root").innerHTML = ""; }
+const sheetOpen = () => !!$("#sheet-root").firstChild;
+function info(title, body, btn = "Continuer", after) {
+  sheet(`<h2>${title}</h2><div>${body}</div><button class="btn primary" id="info-ok">${btn}</button>`);
+  $("#info-ok").onclick = () => { closeSheet(); after && after(); };
+}
+
+/* ================= Routeur ================= */
+let scene = "ville";
+let locked = true;
+function go(s) { scene = s; if (s !== "etage") stopFloor(); render(); }
+function render() {
+  TODO = readTodo();
+  renderHUD();
+  document.body.classList.toggle("floor", scene === "etage" && !locked);
+  if (locked) { $("#view").innerHTML = viewLock(); return; }
+  if (scene === "etage") { startFloor(); return; }
+  $("#view").innerHTML = ({ ville: viewTown, taverne: viewTavern, forge: viewForge, maitre: viewMaster, journal: viewJournal, etage2: viewFloor2 }[scene] || viewTown)();
+  window.scrollTo(0, 0);
+}
+
+/* ---- Écran fermé ---- */
+function viewLock() {
+  const p = TODO && TODO.timer;
+  const held = p && p.phase === "pause" && p.remaining != null;
+  return `<div class="lock">
+    ${TOWER_SVG}
+    <h2>La Tour est fermée</h2>
+    <p>${!TODO ? "Commence par la todo list : c'est elle qui ouvre la Tour." :
+        held ? "Ta pause est suspendue. Reprends-la dans le minuteur pour rouvrir la Tour." :
+        "La Tour ne s'ouvre que pendant une pause. Termine un focus pour gagner ta pause, puis reviens."}</p>
+    <p class="muted">Énergie en réserve : <b class="num">${G.energy}</b> / ${energyCap()}. Chaque cycle de focus terminé en donne ${perCycle()}. Combattre et monter coûtent de l'énergie, explorer est gratuit.</p>
+    <a class="btn primary" href="./#minuteur">Ouvrir le minuteur</a>
+  </div>`;
+}
+const TOWER_SVG = `<svg viewBox="0 0 60 80" aria-hidden="true">
+  <rect x="14" y="14" width="32" height="62" fill="var(--surface-2)" stroke="var(--line)"/>
+  ${[0, 1, 2, 3].map(i => `<rect x="${14 + i * 9}" y="6" width="5" height="8" fill="var(--surface-2)" stroke="var(--line)"/>`).join("")}
+  ${[0, 1, 2, 3, 4, 5].map(r => [0, 1, 2].map(c => `<rect x="${17 + c * 9 + (r % 2) * 3}" y="${20 + r * 9}" width="7" height="5" rx="1" fill="var(--line)"/>`).join("")).join("")}
+  <path d="M24 76V64a6 6 0 0 1 12 0v12z" fill="var(--fg)" opacity=".7"/></svg>`;
+
+/* ---- Ville ---- */
+const ICONS = {
+  taverne: `<svg width="26" height="26" viewBox="0 0 16 16"><rect x="3" y="4" width="8" height="10" rx="1" fill="#d99a2b"/><rect x="3" y="3" width="8" height="3" rx="1" fill="#fff"/><path d="M11 6h2v5h-2" fill="none" stroke="#d99a2b" stroke-width="1.6"/></svg>`,
+  forge: `<svg width="26" height="26" viewBox="0 0 16 16"><path d="M2 7h10l-2 3H5z" fill="#6b7177"/><rect x="5" y="10" width="5" height="4" fill="#4f555a"/><rect x="9" y="1" width="2" height="7" fill="#8a6a3a" transform="rotate(35 10 4)"/><rect x="8" y="1" width="5" height="3" fill="#9aa3a8" transform="rotate(35 10 4)"/></svg>`,
+  maitre: `<svg width="26" height="26" viewBox="0 0 16 16"><path d="M3 13 12 4" stroke="#c9d3da" stroke-width="2"/><path d="M13 13 4 4" stroke="#c9d3da" stroke-width="2"/><path d="M3 11l2 2M11 13l2-2" stroke="#b9830d" stroke-width="2"/></svg>`,
+  porte: `<svg width="26" height="26" viewBox="0 0 16 16"><path d="M3 15V7a5 5 0 0 1 10 0v8z" fill="#fff" opacity=".25"/><path d="M5 15V8a3 3 0 0 1 6 0v7z" fill="#bff0c6"/></svg>`,
+  journal: `<svg width="26" height="26" viewBox="0 0 16 16"><rect x="3" y="2" width="10" height="12" rx="1" fill="#8a5a32"/><rect x="5" y="4" width="6" height="1.4" fill="#f6e3b0"/><rect x="5" y="7" width="6" height="1.4" fill="#f6e3b0"/><rect x="5" y="10" width="4" height="1.4" fill="#f6e3b0"/></svg>`,
+};
+const TOWN_SVG = `<svg viewBox="0 0 360 120" aria-hidden="true">
+  <rect width="360" height="120" fill="#8fd0ef"/><circle cx="300" cy="28" r="14" fill="#fff3b0"/>
+  <rect x="160" y="0" width="40" height="92" fill="#9aa3a8"/>${[0, 1, 2, 3, 4, 5, 6, 7, 8].map(r => `<rect x="${163 + (r % 2) * 6}" y="${4 + r * 10}" width="12" height="6" fill="#b4bbc0"/><rect x="${181 + (r % 2) * 6}" y="${4 + r * 10}" width="12" height="6" fill="#b4bbc0"/>`).join("")}
+  <path d="M172 92V78a8 8 0 0 1 16 0v14z" fill="#2a1a0e"/>
+  <rect y="92" width="360" height="28" fill="#79c257"/><rect y="92" width="360" height="4" fill="#6ab04a"/>
+  <rect x="30" y="62" width="56" height="30" fill="#c99a62"/><path d="M24 64l34-22 34 22z" fill="#b3412e"/><rect x="50" y="74" width="12" height="18" fill="#6b4a2b"/><rect x="34" y="70" width="10" height="8" fill="#fff3b0"/>
+  <rect x="96" y="70" width="44" height="22" fill="#8c9399"/><path d="M92 72l26-14 26 14z" fill="#4f555a"/><rect x="128" y="54" width="7" height="16" fill="#4f555a"/><rect x="104" y="78" width="10" height="14" fill="#2a1a0e"/><rect x="118" y="78" width="10" height="7" fill="#f0a040"/>
+  <rect x="222" y="66" width="50" height="26" fill="#d8c088"/><path d="M216 68l31-18 31 18z" fill="#2f74c0"/><rect x="240" y="76" width="12" height="16" fill="#6b4a2b"/>
+  <rect x="290" y="74" width="10" height="18" fill="#6b4a2b"/><circle cx="295" cy="66" r="16" fill="#3e9447"/>
+  <rect x="0" y="80" width="10" height="12" fill="#6b4a2b"/><circle cx="8" cy="72" r="14" fill="#3e9447"/></svg>`;
+function viewTown() {
+  const q = G.q;
+  const qLeft = [!q.q1, !q.q2, !q.king].filter(Boolean).length;
+  return `
+  <div class="town-banner">${TOWN_SVG}</div>
+  <div class="title-row"><div><h2>La Ville</h2><div class="muted">Au pied de la tour de 100 pierres. Prépare-toi, puis monte.</div></div></div>
+  <div class="places">
+    <button class="place" data-go="taverne"><span class="ico">${ICONS.taverne}</span><div><h3>Taverne</h3><p>${G.rested ? "Tu es Reposé pour cette pause : meilleur butin." : "Une minute loin de l'écran avant de partir : bonus Reposé."}</p></div><span class="chip">${G.rested ? "Reposé" : "1 min"}</span></button>
+    <button class="place" data-go="forge"><span class="ico">${ICONS.forge}</span><div><h3>Forge</h3><p>Équiper, améliorer ou vendre ton butin.</p></div><span class="chip num">${G.items.length} obj.</span></button>
+    <button class="place" data-go="maitre"><span class="ico">${ICONS.maitre}</span><div><h3>Maître d'armes</h3><p>Entraînement et compétences de ton rang.</p></div><span class="chip num">Niv. ${G.train}</span></button>
+    <button class="place" data-go="journal"><span class="ico">${ICONS.journal}</span><div><h3>Journal de quêtes</h3><p>${q.floor2 ? "Étage 1 terminé." : q.met ? `${qLeft} quête${qLeft > 1 ? "s" : ""} en cours.` : "Une bergère t'attend à l'entrée de l'étage 1."}</p></div><span class="chip"></span></button>
+    <button class="place gate" data-go="etage"><span class="ico">${ICONS.porte}</span><div><h3>Porte de la Tour · Étage 1</h3><p>La prairie et ses slimes. Explorer est gratuit, combattre coûte 1 énergie.</p></div><span class="chip">Entrer</span></button>
+  </div>`;
+}
+function viewTavern() {
+  const r = G.rest;
+  let body;
+  if (G.rested) {
+    body = `<div class="panel"><h3>Tu es Reposé</h3><p class="muted" style="margin:0">Jusqu'à la fin de cette pause : plus de chances d'objets Rares, Épiques et Légendaires.</p></div>`;
+  } else if (r) {
+    const a = ACTIVITIES.find(x => x.id === r.id);
+    const left = r.endAt - Date.now();
+    body = `<div class="panel" style="text-align:center">
+      <div class="label">${esc(a.name)}</div>
+      <div class="big-count num" id="rest-count">${left > 0 ? fmt(left) : "00:00"}</div>
+      <p style="margin:0"><b>Pose ton téléphone.</b> ${esc(a.desc)} Reviens quand le compte est fini.</p>
+      <div><button class="btn ${left > 0 ? "" : "primary"}" data-act="rest-done" ${left > 0 ? "disabled" : ""} id="rest-btn">Je suis de retour</button>
+      <button class="btn ghost" data-act="rest-cancel">Annuler</button></div></div>`;
+  } else {
+    body = `<div class="panel"><h3>Une micro-activité loin de l'écran</h3>
+      <p class="muted" style="margin:0">Choisis-en une, lâche l'écran une minute, puis reviens. Tu gagnes le bonus Reposé pour toute la pause.</p>
+      <div class="acts">${ACTIVITIES.map(a => `<button class="act" data-act="rest" data-id="${a.id}"><b>${esc(a.name)}</b><small>${esc(a.desc)}</small></button>`).join("")}</div></div>`;
+  }
+  return `<button class="btn ghost back" data-go="ville">← La Ville</button>
+  <div class="title-row"><div><h2>Taverne</h2><div class="muted">Le tavernier sert une infusion, et un conseil : décroche vraiment.</div></div></div>
+  ${body}
+  <div class="panel"><h3>Infusion de la prairie</h3>
+    <p class="muted" style="margin:0">Rend ${POTION_HEAL} PV en combat. Tu en as <b class="num">${G.potions}</b>.</p>
+    <div><button class="btn" data-act="buy-potion" ${G.gold < POTION_PRICE ? "disabled" : ""}>Acheter · ${POTION_PRICE} or</button></div></div>`;
+}
+function viewForge() {
+  const slots = ["weapon", "armor", "charm"];
+  const list = slots.map(sl => {
+    const its = G.items.filter(i => i.slot === sl).sort((a, b) => b.rarity - a.rarity || b.lvl - a.lvl);
+    return `<div class="panel"><h3>${SLOT_NAME[sl]}</h3>${its.length ? `<ul class="items">${its.map(it => {
+      const on = G.equip[sl] === it.id;
+      return `<li class="item ${on ? "eq" : ""}"><div><div class="nm rar-${it.rarity}">${esc(it.name)}${it.lvl ? ` +${it.lvl}` : ""}</div>
+        <div class="st">${RARITY[it.rarity]} · ${statText(it)}${on ? " · équipé" : ""}</div></div>
+        <div class="bt">${on ? "" : `<button class="btn small" data-act="equip" data-id="${it.id}">Équiper</button>`}
+          ${it.lvl < 5 ? `<button class="btn small" data-act="upgrade" data-id="${it.id}" ${G.gold < upCost(it) ? "disabled" : ""}>Améliorer · ${upCost(it)} or</button>` : `<span class="chip">Max</span>`}
+          ${on ? "" : `<button class="btn small ghost" data-act="sell" data-id="${it.id}">Vendre ${sellPrice(it)} or</button>`}</div></li>`;
+    }).join("")}</ul>` : `<p class="muted" style="margin:0">Rien pour l'instant. Les slimes laissent parfois tomber un objet.</p>`}</div>`;
+  }).join("");
+  return `<button class="btn ghost back" data-go="ville">← La Ville</button>
+  <div class="title-row"><div><h2>Forge</h2><div class="muted">Attaque ${atk()} · Défense ${def()} · PV max ${maxHp()}</div></div></div>${list}`;
+}
+function viewMaster() {
+  const ri = rankIdx(), mt = maxTrain();
+  return `<button class="btn ghost back" data-go="ville">← La Ville</button>
+  <div class="title-row"><div><h2>Maître d'armes</h2><div class="muted">Tes compétences viennent de ton travail : chaque rang de la todo list en débloque une.</div></div></div>
+  <div class="panel"><h3>Entraînement</h3>
+    <div class="statline"><span><span class="label">Niveau</span><br><b class="num">${G.train} / ${mt}</b></span><span><span class="label">Attaque</span><br><b class="num">${atk()}</b></span><span><span class="label">PV max</span><br><b class="num">${maxHp()}</b></span></div>
+    <p class="muted" style="margin:0">Chaque niveau : +1 attaque, +3 PV max. Le plafond monte de 2 à chaque rang.</p>
+    <div>${G.train < mt ? `<button class="btn primary" data-act="train" ${G.gold < trainCost() ? "disabled" : ""}>S'entraîner · ${trainCost()} or</button>` : `<span class="chip">Plafond atteint : monte en rang dans la todo list</span>`}</div></div>
+  <div class="panel"><h3>Compétences</h3><ul class="skills">${SKILLS.map((s, k) => `<li class="${k <= ri ? "" : "off"}"><span class="pip"></span><div><b>${esc(s.name)}</b> <span class="muted">· ${esc(RANKS[k].name)}, ${RANKS[k].xp} XP</span><div class="muted" style="font-size:13px">${esc(s.game)}</div></div></li>`).join("")}</ul></div>`;
+}
+function questLines() {
+  const q = G.q;
+  if (!q.met) return `<ul class="qlist"><li><b>Trouver la bergère</b><span class="muted">Elle garde ses moutons près de l'entrée de l'étage 1.</span></li></ul>`;
+  return `<ul class="qlist">
+    <li><b class="${q.q1 ? "done" : ""}">Les slimes de la prairie</b><span class="muted">${q.q1 ? "Terminée : les haies du nord se sont écartées." : `Vaincre 5 slimes : ${Math.min(5, q.kills)} / 5.`}</span></li>
+    <li><b class="${q.q2 ? "done" : ""}">Fleurs de rosée</b><span class="muted">${q.q2 ? "Terminée." : `Cueillir 3 fleurs de rosée, près de l'eau et des rochers : ${q.flowers.length} / 3.`}</span></li>
+    <li><b class="${q.king ? "done" : ""}">Le Roi des slimes</b><span class="muted">${q.king ? "Vaincu." : q.q1 ? "Il t'attend dans la clairière du nord." : "Se débloque après la première quête."}</span></li>
+  </ul>`;
+}
+function viewJournal() {
+  const q = G.q, all = q.q1 && q.q2 && q.king;
+  return `<button class="btn ghost back" data-go="ville">← La Ville</button>
+  <div class="title-row"><div><h2>Journal de quêtes</h2><div class="muted">Étage 1 · La prairie</div></div></div>
+  <div class="panel">${questLines()}</div>
+  ${all && !q.stairs ? `<div class="hint">Le Roi a laissé tomber un bout de carte : « Là où l'étang dort, le vieux chêne sonne creux. »</div>` : ""}
+  ${q.stairs ? `<div class="hint">L'escalier caché est dans le tronc du vieux chêne, à l'ouest de l'étang.</div>` : ""}`;
+}
+function viewFloor2() {
+  return `<div class="lock">${TOWER_SVG}<h2>Étage 2 · La forêt d'automne</h2>
+    <p>Tu passes la tête par la trappe : des arbres orangés à perte de vue. Cet étage arrive dans la prochaine version.</p>
+    <button class="btn primary" data-go="ville">Redescendre en ville</button></div>`;
+}
+
+/* ================= Étage 1 : carte ================= */
+const MAP = [
+  "TTTTTTTTTTTTTTTTTTTTTTTT",
+  "TTTTTTT,,......,,TTTTTTT",
+  "TTTTT,....,,......,TTTTT",
+  "TTTT,.....oo.......,TTTT",
+  "TTTT................TTTT",
+  "TTTT,..............,TTTT",
+  "TTTTT,,..........,,TTTTT",
+  "TTTTTTTTTThhhhTTTTTTTTTT",
+  "TTT..,,....::....,,..TTT",
+  "TT.....,...::...f.....TT",
+  "TT..oo.....::.......o.TT",
+  "TT.f.......::...TT....TT",
+  "TT,,.......::..TTTT..,TT",
+  "TTT,,..f...::...TT..,,TT",
+  "TTT........::.........TT",
+  "TT......:::::::.......TT",
+  "TT..~~~~:.....::......TT",
+  "T..~~~~~~:.....::..o..TT",
+  "T.O~~~~~~~:.....::....TT",
+  "T..~~~~~~~.:....::..f.TT",
+  "T,..~~~~~...:....::...TT",
+  "TT,.......f..:....::..TT",
+  "TT,,..........::::::..TT",
+  "TTT,..TT......::....,TTT",
+  "TTT..TTTT.....::...,,TTT",
+  "TT...TTT...f..::.......T",
+  "TT.,,.....,,..::...oo..T",
+  "TT.,,,....,,..::.......T",
+  "TTT...........::...TT.TT",
+  "TTTT...f......::...TTTTT",
+  "TTTTT,........::.....TTT",
+  "TTTTTT,,......::....TTTT",
+  "TTTTTTTT......::..TTTTTT",
+  "TTTTTTTTTT....P..TTTTTTT",
+  "TTTTTTTTTTTTTTTTTTTTTTTT",
+];
+const MW = MAP[0].length, MH = MAP.length;
+const START = { x: 14, y: 32 }, NPC = { x: 17, y: 30 }, OAK = { x: 2, y: 18 }, KING_POS = { x: 11, y: 4 }, PORTAL = { x: 14, y: 33 };
+const DEW = [{ id: "d1", x: 3, y: 16 }, { id: "d2", x: 21, y: 10 }, { id: "d3", x: 18, y: 26 }];
+function tileAt(x, y) {
+  if (x < 0 || y < 0 || x >= MW || y >= MH) return "T";
+  if (x === OAK.x && y === OAK.y) return G.q.stairs ? "E" : "O";
+  const c = MAP[y][x];
+  if (c === "h" && G.q.q1) return ",";
+  return c;
+}
+const walkable = (x, y) => { const c = tileAt(x, y); return !"T~ohO".includes(c) && !(x === NPC.x && y === NPC.y); };
+
+const TS = 48, PX = 3; // tuile de 16 « pixels » × 3
+let DPR = Math.min(2, window.devicePixelRatio || 1);
+const SPR = {};
+function mk(draw) {
+  const c = document.createElement("canvas"); c.width = c.height = TS * DPR;
+  const x = c.getContext("2d"); x.scale(PX * DPR, PX * DPR); draw(x); return c;
+}
+const R = (x, col, a, b, w, h) => { x.fillStyle = col; x.fillRect(a, b, w, h); };
+function grass(x, v) {
+  R(x, "#79c257", 0, 0, 16, 16);
+  for (let i = 0; i < 6; i++) R(x, i % 2 ? "#6ab04a" : "#8fd46a", (i * 7 + v * 5) % 15, (i * 5 + v * 11 + 3) % 15, 1, 1);
+}
+function buildSprites() {
+  for (let v = 0; v < 4; v++) SPR["g" + v] = mk(x => grass(x, v));
+  SPR.tall = mk(x => { grass(x, 1); [[2, 4], [9, 2], [11, 10], [4, 11]].forEach(([a, b]) => { R(x, "#4f9a37", a, b + 1, 1, 3); R(x, "#4f9a37", a + 1, b, 1, 4); R(x, "#5fae44", a + 2, b + 1, 1, 3); }); });
+  SPR.path = mk(x => { R(x, "#d8c088", 0, 0, 16, 16); [[3, 4], [11, 2], [7, 10], [13, 12], [2, 13]].forEach(([a, b], i) => R(x, i % 2 ? "#c4a96e" : "#e6d3a3", a, b, 2, 1)); });
+  for (let f = 0; f < 2; f++) SPR["w" + f] = mk(x => { R(x, "#4b9fd6", 0, 0, 16, 16); [[2, 3], [9, 7], [4, 12]].forEach(([a, b]) => R(x, "#7cc3ec", (a + f * 2) % 13, b, 4, 1)); R(x, "#3f8fc4", 0, 15, 16, 1); });
+  SPR.tree = mk(x => {
+    grass(x, 2); R(x, "#25632f", 3, 12, 10, 2); R(x, "#6b4a2b", 7, 11, 2, 5);
+    R(x, "#2f7a3b", 2, 2, 12, 10); R(x, "#2f7a3b", 3, 1, 10, 1); R(x, "#2f7a3b", 1, 3, 1, 7); R(x, "#2f7a3b", 14, 3, 1, 7);
+    R(x, "#45994e", 4, 3, 4, 3); R(x, "#45994e", 9, 6, 3, 2); R(x, "#25632f", 3, 10, 10, 2);
+  });
+  SPR.rock = mk(x => { grass(x, 3); R(x, "#5f8f45", 3, 13, 11, 1); R(x, "#8c9399", 3, 6, 10, 7); R(x, "#8c9399", 4, 5, 8, 1); R(x, "#b4bbc0", 5, 6, 5, 2); R(x, "#6b7177", 3, 12, 10, 1); });
+  SPR.flower = mk(x => { grass(x, 0); [[4, 5, "#f2f2f2"], [11, 9, "#f08bb4"], [6, 12, "#f2f2f2"], [12, 3, "#f5d04a"]].forEach(([a, b, c]) => { R(x, c, a - 1, b, 3, 1); R(x, c, a, b - 1, 1, 3); R(x, "#f5d04a", a, b, 1, 1); }); });
+  SPR.hedge = mk(x => { grass(x, 1); R(x, "#2b6b33", 0, 3, 16, 12); R(x, "#2b6b33", 1, 2, 14, 1); [[2, 4], [7, 6], [12, 4], [4, 10], [10, 11]].forEach(([a, b]) => R(x, "#3c8a45", a, b, 2, 2)); R(x, "#c8473a", 6, 9, 1, 1); R(x, "#c8473a", 13, 8, 1, 1); });
+  const oak = open => x => {
+    grass(x, 2); R(x, "#2f7a3b", 0, 0, 16, 4); R(x, "#45994e", 2, 0, 5, 2);
+    R(x, "#7a5230", 3, 3, 10, 13); R(x, "#5e3e22", 5, 4, 1, 4); R(x, "#5e3e22", 11, 5, 1, 6); R(x, "#8f6640", 4, 3, 2, 12);
+    R(x, "#2a1a0e", 6, 8, 4, 7); R(x, "#2a1a0e", 7, 7, 2, 1);
+    if (open) { R(x, "#b08a5a", 6, 13, 4, 1); R(x, "#b08a5a", 7, 11, 3, 1); R(x, "#b08a5a", 8, 9, 2, 1); R(x, "#f5d04a", 8, 7, 1, 1); }
+    else { [[5, 8], [7, 9], [9, 8], [6, 11], [8, 12], [10, 10], [6, 14], [9, 14]].forEach(([a, b]) => R(x, "#3c8a45", a, b, 2, 2)); }
+  };
+  SPR.oak = mk(oak(false)); SPR.stairs = mk(oak(true));
+  SPR.portal = mk(x => { R(x, "#d8c088", 0, 0, 16, 16); R(x, "#9aa3a8", 2, 3, 12, 13); R(x, "#9aa3a8", 4, 1, 8, 2); R(x, "#a7e1ff", 4, 5, 8, 11); R(x, "#dff5ff", 6, 4, 4, 1); R(x, "#7fc8ef", 5, 10, 6, 6); });
+}
+function tileSprite(c, x, y, t) {
+  switch (c) {
+    case "T": return SPR.tree; case ",": return SPR.tall; case ":": return SPR.path; case "~": return SPR["w" + (Math.floor(t / 600 + x) % 2)];
+    case "o": return SPR.rock; case "f": return SPR.flower; case "h": return SPR.hedge; case "O": return SPR.oak; case "E": return SPR.stairs; case "P": return SPR.portal;
+    default: return SPR["g" + ((x * 7 + y * 13) % 4)];
+  }
+}
+
+/* ---- Personnages (dessin pixel) ---- */
+function drawHero(x, ri, frame) {
+  R(x, "rgba(0,0,0,.2)", 4, 14, 8, 2);
+  if (ri >= 5) R(x, "#b3412e", 4, 7, 7, 7);
+  const lo = frame ? 1 : 0;
+  R(x, "#4a3a2a", 5, 12, 2, 2 + lo); R(x, "#4a3a2a", 9, 12, 2, 3 - lo);
+  R(x, ri >= 4 ? "#8a5a32" : "#3d7fa6", 4, 7, 8, 5); R(x, "#5e3e22", 4, 10, 8, 1);
+  if (ri >= 4) { R(x, "#a87344", 5, 8, 2, 1); R(x, "#a87344", 9, 8, 2, 1); }
+  R(x, "#f1c7a0", 5, 2, 6, 5); R(x, "#5b3a1e", 5, 1, 6, 2); R(x, "#5b3a1e", 4, 2, 1, 3); R(x, "#1c2a22", 9, 4, 1, 1);
+  if (ri >= 6) { R(x, "#f0c04a", 5, 0, 6, 1); R(x, "#f0c04a", 5, -1, 1, 1); R(x, "#f0c04a", 8, -1, 1, 1); R(x, "#f0c04a", 10, -1, 1, 1); }
+  if (ri >= 2) { R(x, "#d9e2e8", 12, 2, 1, 8); R(x, "#b9830d", 11, 9, 3, 1); R(x, "#5e3e22", 12, 10, 1, 2); }
+  else { R(x, "#8a6a3a", 12, 2, 1, 12); R(x, "#a8844c", 12, 2, 1, 1); }
+  if (ri >= 3) { R(x, "#8a5a32", 1, 7, 4, 5); R(x, "#b9830d", 2, 9, 2, 1); }
+  else if (ri >= 1) { R(x, "#5e3e22", 3, 8, 1, 2); R(x, "#f0c04a", 2, 10, 3, 3); R(x, "#fff3b0", 3, 11, 1, 1); }
+}
+function drawSlime(x, kind, t) {
+  const col = kind === "blue" ? ["#5ab0e8", "#3a86bf"] : kind === "king" ? ["#9be06e", "#5fae44"] : ["#7bd35a", "#4f9a37"];
+  const s = Math.sin(t / 180) > 0 ? 1 : 0;
+  R(x, "rgba(0,0,0,.2)", 2, 14, 12, 2);
+  R(x, col[1], 1, 10 + s, 14, 4 - s); R(x, col[0], 2, 8 + s, 12, 6 - s); R(x, col[0], 3, 6 + s, 10, 2); R(x, col[0], 5, 5 + s, 6, 1);
+  R(x, "rgba(255,255,255,.7)", 4, 7 + s, 2, 2);
+  R(x, "#1c2a22", 6, 9 + s, 1, 2); R(x, "#1c2a22", 9, 9 + s, 1, 2);
+  if (kind === "king") { R(x, "#f0c04a", 5, 2 + s, 6, 2); R(x, "#f0c04a", 5, 1 + s, 1, 1); R(x, "#f0c04a", 7, 0 + s, 2, 2); R(x, "#f0c04a", 10, 1 + s, 1, 1); R(x, "#c8473a", 7, 2 + s, 2, 1); }
+}
+function drawNPC(x, t) {
+  R(x, "rgba(0,0,0,.2)", 4, 14, 8, 2);
+  R(x, "#8a6a3a", 13, 2, 1, 12); R(x, "#8a6a3a", 12, 2, 2, 1); R(x, "#8a6a3a", 11, 3, 1, 1);
+  R(x, "#8e5bb5", 4, 7, 8, 7); R(x, "#f2f2f2", 6, 8, 4, 1);
+  R(x, "#f1c7a0", 5, 3, 6, 4); R(x, "#c4702e", 4, 4, 1, 4); R(x, "#c4702e", 11, 4, 1, 4); R(x, "#1c2a22", 9, 5, 1, 1);
+  R(x, "#e2c26a", 3, 2, 10, 2); R(x, "#e2c26a", 5, 0, 6, 2);
+  if (!G.q.met && Math.floor(t / 400) % 2 === 0) { R(x, "#f0c04a", 7, -6, 2, 3); R(x, "#f0c04a", 7, -2, 2, 1); }
+}
+function drawDew(x, t) {
+  R(x, "#3c8a45", 7, 8, 1, 6); R(x, "#3c8a45", 8, 11, 2, 1);
+  R(x, "#bfe9ff", 5, 5, 5, 3); R(x, "#bfe9ff", 6, 4, 3, 5); R(x, "#ffffff", 7, 6, 1, 1);
+  const k = Math.floor(t / 250) % 4; const sp = [[3, 3], [12, 4], [11, 9], [3, 9]][k];
+  R(x, "#ffffff", sp[0], sp[1], 1, 1);
+}
+function sprite(draw, size = 16) { // dessine un personnage dans un petit canvas (combat)
+  const c = document.createElement("canvas"); c.width = c.height = size * 6 * DPR;
+  const x = c.getContext("2d"); x.scale(6 * DPR * size / 16, 6 * DPR * size / 16); x.translate(0, 1); draw(x); return c;
+}
+
+/* ---- Boucle de l'étage ---- */
+let F = null; // état temporaire de l'étage (slimes, chemin…)
+function startFloor() {
+  if (F) return;
+  $("#view").innerHTML = `<div id="stage"><canvas id="cv" aria-label="Carte de l'étage 1. Touche une case pour t'y rendre."></canvas></div>
+    <div class="floor-name">Étage 1 · La prairie</div>
+    <div class="floor-bar"><button class="btn" data-go="ville">Ville</button><div class="floor-msg" id="floor-msg"></div><button class="btn" data-act="journal-sheet">Journal</button></div>`;
+  if (!SPR.tree) buildSprites();
+  const pos = G.pos || { ...START };
+  F = { hero: { x: pos.x, y: pos.y, rx: pos.x, ry: pos.y, dir: 1, path: [], moving: false }, slimes: [], t: 0, raf: 0, pending: null, last: performance.now(), msg: "" };
+  spawnSlimes();
+  const cv = $("#cv");
+  cv.addEventListener("pointerdown", onTap);
+  resizeCanvas();
+  setMsg(G.q.met ? floorHint() : "Touche une case pour t'y rendre. La bergère t'attend juste à droite.");
+  F.raf = requestAnimationFrame(loop);
+}
+function stopFloor() { if (F) { cancelAnimationFrame(F.raf); F = null; } }
+function resizeCanvas() {
+  const cv = $("#cv"); if (!cv) return;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.round(r.width * DPR); cv.height = Math.round(r.height * DPR);
+}
+window.addEventListener("resize", resizeCanvas);
+function setMsg(m) { if (F) F.msg = m; const el = $("#floor-msg"); if (el) el.textContent = m; }
+function floorHint() {
+  const q = G.q;
+  if (!q.q1) return `Slimes vaincus : ${Math.min(5, q.kills)} / 5 · Fleurs : ${q.flowers.length} / 3`;
+  if (!q.king) return "Les haies du nord sont ouvertes : le Roi des slimes t'attend.";
+  if (!q.q2) return `Fleurs de rosée : ${q.flowers.length} / 3`;
+  if (!q.stairs) return "Le vieux chêne près de l'étang sonne creux…";
+  return "L'escalier est dans le vieux chêne, à l'ouest de l'étang.";
+}
+function spawnSlimes() {
+  const s = [];
+  const free = [];
+  for (let y = 8; y < 30; y++) for (let x = 0; x < MW; x++) {
+    if (!walkable(x, y) || "fP".includes(tileAt(x, y))) continue;
+    if (Math.abs(x - START.x) + Math.abs(y - START.y) < 7) continue;
+    if (DEW.some(d => d.x === x && d.y === y)) continue;
+    free.push({ x, y });
+  }
+  for (let i = 0; i < 7 && free.length; i++) {
+    const p = free.splice(rnd(0, free.length - 1), 1)[0];
+    s.push({ id: uid(), kind: G.q.kills >= 3 && Math.random() < 0.35 ? "blue" : "green", x: p.x, y: p.y, rx: p.x, ry: p.y, next: performance.now() + rnd(600, 1600), cool: 0 });
+  }
+  if (G.q.q1 && !G.q.king) s.push({ id: "king", kind: "king", x: KING_POS.x, y: KING_POS.y, rx: KING_POS.x, ry: KING_POS.y, next: Infinity, cool: 0 });
+  F.slimes = s;
+}
+function camera(cv) {
+  const w = cv.width / DPR, h = cv.height / DPR;
+  const mw = MW * TS, mh = MH * TS;
+  let cx = F.hero.rx * TS + TS / 2 - w / 2, cy = F.hero.ry * TS + TS / 2 - h / 2;
+  cx = mw <= w ? (mw - w) / 2 : Math.max(0, Math.min(mw - w, cx));
+  cy = mh <= h ? (mh - h) / 2 : Math.max(0, Math.min(mh - h + 60, cy)); // 60 : place pour la barre du bas
+  return { cx, cy, w, h };
+}
+function loop(now) {
+  if (!F) return;
+  const dt = Math.min(64, now - F.last); F.last = now; F.t = now;
+  if (!sheetOpen()) update(dt, now);
+  draw(now);
+  F.raf = requestAnimationFrame(loop);
+}
+function update(dt, now) {
+  const h = F.hero, speed = (hasSkill(5) ? 7 : 5) / 1000;
+  if (!h.moving && h.path.length) {
+    const n = h.path[0];
+    const sl = F.slimes.find(s => s.x === n.x && s.y === n.y);
+    if (sl) { h.path = []; meet(sl); return; }
+    h.path.shift();
+    if (n.x !== h.x) h.dir = n.x > h.x ? 1 : -1;
+    h.x = n.x; h.y = n.y; h.moving = true;
+  }
+  if (h.moving) {
+    const dx = h.x - h.rx, dy = h.y - h.ry, d = Math.hypot(dx, dy), st = speed * dt;
+    if (d <= st) { h.rx = h.x; h.ry = h.y; h.moving = false; arrive(); }
+    else { h.rx += dx / d * st; h.ry += dy / d * st; }
+  }
+  for (const s of F.slimes) {
+    s.rx += (s.x - s.rx) * Math.min(1, dt / 120); s.ry += (s.y - s.ry) * Math.min(1, dt / 120);
+    if (now < s.next) continue;
+    s.next = now + rnd(700, 1700);
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].sort(() => Math.random() - .5);
+    for (const [ax, ay] of dirs) {
+      const nx = s.x + ax, ny = s.y + ay;
+      if (ny < 8 || !walkable(nx, ny) || "P".includes(tileAt(nx, ny)) || F.slimes.some(o => o.x === nx && o.y === ny)) continue;
+      if (nx === h.x && ny === h.y) { if (now > s.cool && !h.moving) { meet(s); return; } continue; }
+      s.x = nx; s.y = ny; break;
+    }
+  }
+}
+function arrive() {
+  const h = F.hero;
+  G.pos = { x: h.x, y: h.y };
+  const dew = DEW.find(d => d.x === h.x && d.y === h.y);
+  if (dew && !G.q.flowers.includes(dew.id) && dewVisible(dew)) {
+    G.q.flowers.push(dew.id);
+    toast(`Fleur de rosée ${G.q.flowers.length} / 3`);
+    if (G.q.flowers.length >= 3 && !G.q.q2) {
+      if (G.q.met) completeQ2(); else toast("Une bergère saurait quoi en faire…");
+    }
+    setMsg(floorHint());
+  }
+  if (tileAt(h.x, h.y) === "E") { h.path = []; climb(); }
+  else if (h.x === PORTAL.x && h.y === PORTAL.y) { h.path = []; save(); go("ville"); return; }
+  if (!h.path.length && F.pending) { const p = F.pending; F.pending = null; interact(p); }
+  save();
+}
+function dewVisible(d) {
+  if (G.q.flowers.includes(d.id)) return false;
+  if (hasSkill(1)) return true;
+  return Math.abs(d.x - F.hero.x) + Math.abs(d.y - F.hero.y) <= 3;
+}
+function draw(now) {
+  const cv = $("#cv"); if (!cv) return;
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingEnabled = false;
+  const { cx, cy, w, h } = camera(cv);
+  ctx.fillStyle = "#2f7a3b"; ctx.fillRect(0, 0, w, h);
+  const x0 = Math.max(0, Math.floor(cx / TS)), y0 = Math.max(0, Math.floor(cy / TS));
+  const x1 = Math.min(MW - 1, Math.ceil((cx + w) / TS)), y1 = Math.min(MH - 1, Math.ceil((cy + h) / TS));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++)
+    ctx.drawImage(tileSprite(tileAt(x, y), x, y, now), Math.round(x * TS - cx), Math.round(y * TS - cy), TS, TS);
+  const at = (gx, gy, fn) => { ctx.save(); ctx.translate(Math.round(gx * TS - cx), Math.round(gy * TS - cy)); ctx.scale(PX, PX); fn(ctx); ctx.restore(); };
+  DEW.forEach(d => { if (dewVisible(d)) at(d.x, d.y, x => drawDew(x, now)); });
+  at(NPC.x, NPC.y, x => drawNPC(x, now));
+  if (F.target) { ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 2; ctx.strokeRect(Math.round(F.target.x * TS - cx) + 4, Math.round(F.target.y * TS - cy) + 4, TS - 8, TS - 8); }
+  const actors = [...F.slimes.map(s => ({ y: s.ry, f: () => s.kind === "king"
+      ? (() => { ctx.save(); ctx.translate(Math.round(s.rx * TS - cx - TS / 2), Math.round(s.ry * TS - cy - TS)); ctx.scale(PX * 2, PX * 2); drawSlime(ctx, "king", now); ctx.restore(); })()
+      : at(s.rx, s.ry, x => drawSlime(x, s.kind, now + s.x * 97)) })),
+    { y: F.hero.ry, f: () => { ctx.save(); ctx.translate(Math.round(F.hero.rx * TS - cx + (F.hero.dir < 0 ? TS : 0)), Math.round(F.hero.ry * TS - cy)); ctx.scale(PX * F.hero.dir, PX); drawHero(ctx, rankIdx(), F.hero.moving ? Math.floor(now / 140) % 2 : 0); ctx.restore(); } }];
+  actors.sort((a, b) => a.y - b.y).forEach(a => a.f());
+}
+function onTap(e) {
+  if (sheetOpen()) return;
+  const cv = $("#cv"), r = cv.getBoundingClientRect();
+  const { cx, cy } = camera(cv);
+  const tx = Math.floor((e.clientX - r.left + cx) / TS), ty = Math.floor((e.clientY - r.top + cy) / TS);
+  routeTo(tx, ty);
+}
+function routeTo(tx, ty) {
+  const h = F.hero;
+  let interactWith = null;
+  const isKing = F.slimes.find(s => s.kind === "king" && Math.abs(s.x - tx) <= 1 && ty >= s.y - 1 && ty <= s.y);
+  if (tx === NPC.x && ty === NPC.y) interactWith = "npc";
+  else if (tx === OAK.x && ty === OAK.y && tileAt(tx, ty) === "O") interactWith = "oak";
+  else if (tileAt(tx, ty) === "h") interactWith = "hedge";
+  let goals;
+  if (isKing) goals = [{ x: isKing.x, y: isKing.y }];
+  else if (interactWith) goals = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => ({ x: tx + a, y: ty + b })).filter(p => walkable(p.x, p.y));
+  else if (walkable(tx, ty)) goals = [{ x: tx, y: ty }];
+  else return;
+  const start = { x: h.x, y: h.y };
+  if (interactWith && goals.some(g => g.x === start.x && g.y === start.y)) { h.path = []; interact(interactWith); return; }
+  const path = bfs(start, goals);
+  if (!path) { toast("Impossible d'y aller d'ici"); return; }
+  h.path = path; F.pending = interactWith; F.target = { x: tx, y: ty };
+  setTimeout(() => { if (F && F.target && F.target.x === tx && F.target.y === ty) F.target = null; }, 500);
+}
+function bfs(s, goals) {
+  const key = (x, y) => y * MW + x, prev = new Map([[key(s.x, s.y), null]]), q = [s];
+  const isGoal = p => goals.some(g => g.x === p.x && g.y === p.y);
+  while (q.length) {
+    const c = q.shift();
+    if (isGoal(c)) { const out = []; let k = key(c.x, c.y), p = c; while (p && !(p.x === s.x && p.y === s.y)) { out.unshift(p); p = prev.get(key(p.x, p.y)); } return out; }
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = { x: c.x + a, y: c.y + b }, k = key(n.x, n.y);
+      if (prev.has(k)) continue;
+      if (!walkable(n.x, n.y) && !isGoal(n)) continue;
+      prev.set(k, c); q.push(n);
+    }
+  }
+  return null;
+}
+document.addEventListener("keydown", e => {
+  if (!F || sheetOpen()) return;
+  const d = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], z: [0, -1], s: [0, 1], q: [-1, 0], d: [1, 0], w: [0, -1], a: [-1, 0] }[e.key];
+  if (!d) return;
+  e.preventDefault();
+  const h = F.hero; if (h.moving || h.path.length) return;
+  routeTo(h.x + d[0], h.y + d[1]);
+});
+
+/* ---- Interactions ---- */
+function interact(what) {
+  const q = G.q;
+  if (what === "npc") {
+    if (!q.met) {
+      q.met = true; save();
+      info("Maëlle, la bergère", `<p>« Ah, un grimpeur ! Les slimes dévorent mes trèfles. Tu veux bien en chasser <b>cinq</b> ? Et si tu croises des <b>fleurs de rosée</b>, près de l'eau et des rochers, rapporte-m'en trois : elles soignent mes moutons. »</p>
+        <p class="muted">Combattre coûte 1 énergie. Cueillir est gratuit.</p>`, "J'y vais", () => { if (q.flowers.length >= 3 && !q.q2) completeQ2(); setMsg(floorHint()); });
+    } else if (q.q1 && q.q2 && q.king) {
+      info("Maëlle", `<p>« Le Roi est tombé ? Alors la prairie respire. On dit que le vieux chêne près de l'étang <i>sonne creux</i>… »</p>`);
+    } else {
+      info("Maëlle", `<p>« Courage ! »</p>${questLines()}`, "Continuer");
+    }
+  } else if (what === "oak") {
+    if (q.q1 && q.q2 && q.king) {
+      q.stairs = true; save();
+      info("Le vieux chêne", `<p>Tu écartes le lierre. Le tronc est creux… et un <b>escalier</b> grimpe à l'intérieur !</p><p class="muted">Monter coûte ${hasSkill(5) ? 1 : 2} énergie.</p>`, "Continuer", () => setMsg(floorHint()));
+    } else info("Le vieux chêne", `<p>Un chêne immense, couvert de lierre. Son écorce est tiède. Rien d'autre… pour l'instant.</p>`);
+  } else if (what === "hedge") {
+    info("Une haie épaisse", `<p>Impossible de passer. Derrière, on entend un gros <i>splotch</i>.</p>`);
+  }
+}
+function completeQ1() {
+  G.q.q1 = true; G.gold += 15; giveItem(makeItem(1)); save();
+  info("Quête terminée", `<p><b>Les slimes de la prairie.</b> Maëlle te lance 15 or et un objet Rare.</p><p>Au nord, un bruit de branches : <b>les haies s'écartent</b>.</p>`, "Continuer", () => { if (F) spawnSlimes(); setMsg(floorHint()); });
+}
+function completeQ2() {
+  G.q.q2 = true; G.gold += 10; G.potions += 2; save();
+  info("Quête terminée", `<p><b>Fleurs de rosée.</b> Maëlle te donne 10 or et 2 infusions.</p>`, "Continuer", () => setMsg(floorHint()));
+}
+function climb() {
+  const cost = hasSkill(5) ? 1 : 2;
+  if (G.energy < cost) { info("L'escalier", `<p>Il te faut ${cost} énergie pour monter. Termine un cycle de focus pour en regagner.</p>`); return; }
+  sheet(`<h2>Monter à l'étage 2 ?</h2><p>Coûte ${cost} énergie.</p><div class="cacts"><button class="btn primary" id="cl-yes">Monter</button><button class="btn" id="cl-no">Pas maintenant</button></div>`);
+  $("#cl-yes").onclick = () => { G.energy -= cost; G.q.floor2 = true; save(); closeSheet(); go("etage2"); };
+  $("#cl-no").onclick = closeSheet;
+}
+
+/* ================= Combat au tour par tour ================= */
+const FOES = {
+  green: { name: "Slime vert", hp: 7, atk: 2, gold: [2, 5], drop: 35, cost: 1 },
+  blue:  { name: "Slime bleu", hp: 11, atk: 3, gold: [4, 7], drop: 45, cost: 1 },
+  king:  { name: "Roi des slimes", hp: 45, atk: 5, gold: [25, 25], drop: 100, cost: 2 },
+};
+let C = null;
+function meet(sl) {
+  const f = FOES[sl.kind];
+  if (G.energy < f.cost) {
+    sl.cool = performance.now() + 2500;
+    toast(`Plus assez d'énergie (${f.cost} requise)`);
+    setMsg("Le slime te repousse. Termine un cycle de focus pour regagner de l'énergie, ou explore.");
+    const h = F.hero; h.path = [];
+    return;
+  }
+  G.energy -= f.cost; save();
+  if (G.hp == null) G.hp = maxHp();
+  C = { sl, f, hp: f.hp, max: f.hp, turn: 0, streak: 0, used: {}, guard: false, log: [`${f.name} surgit !`], busy: false };
+  C.intent = nextIntent();
+  renderCombat();
+}
+function nextIntent() {
+  if (C.f === FOES.king && (C.turn + 1) % 3 === 0) return { name: "Écrasement", dmg: 9 };
+  if (Math.random() < 0.2) return { name: "Bond", dmg: C.f.atk + 2 };
+  return { name: "Choc", dmg: C.f.atk };
+}
+function renderCombat() {
+  const ri = rankIdx(), mh = maxHp();
+  const sk = [];
+  if (hasSkill(2)) sk.push(`<button class="btn" data-c="precis" ${C.used.precis ? "disabled" : ""}>Coup précis</button>`);
+  if (hasSkill(3)) sk.push(`<button class="btn" data-c="garde" ${C.used.garde ? "disabled" : ""}>Garde</button>`);
+  sheet(`<h2>${esc(C.f.name)}</h2>
+    <div class="arena">
+      <div class="fighter" id="f-hero"><span id="hero-sp"></span><b>Toi</b><span class="hpbar"><i style="width:${(G.hp / mh) * 100}%"></i></span><span class="num">${G.hp} / ${mh} PV</span></div>
+      <div class="fighter" id="f-foe"><span id="foe-sp"></span><b>${esc(C.f.name)}</b><span class="hpbar"><i style="width:${(C.hp / C.max) * 100}%"></i></span><span class="num">${C.hp} / ${C.max} PV</span></div>
+    </div>
+    <div class="intent">${hasSkill(1) ? `Intention : ${esc(C.intent.name)} (${C.intent.dmg} dégâts)` : ""}${C.guard ? " · Garde levée" : ""}</div>
+    <div class="clog">${C.log.slice(-3).map(l => `<div>${l}</div>`).join("")}</div>
+    <div class="cacts">
+      <button class="btn primary" data-c="atk" data-focus>Attaquer${hasSkill(0) && C.streak ? ` (+${Math.min(2, C.streak)})` : ""}</button>
+      ${sk.join("")}
+      <button class="btn" data-c="potion" ${G.potions ? "" : "disabled"}>Infusion (${G.potions})</button>
+      <button class="btn ghost" data-c="fuir">Fuir</button>
+    </div>`);
+  $("#hero-sp").appendChild(sprite(x => drawHero(x, ri, 0)));
+  $("#foe-sp").appendChild(sprite(x => { x.translate(16, 0); x.scale(-1, 1); drawSlime(x, C.sl.kind, 0); }));
+  document.querySelectorAll("[data-c]").forEach(b => b.onclick = () => combatAct(b.dataset.c));
+  if (C.busy) document.querySelectorAll("[data-c]").forEach(b => b.disabled = true);
+}
+function shake(id) { const el = $(id); if (el) { el.classList.remove("hit"); void el.offsetWidth; el.classList.add("hit"); } }
+function combatAct(a) {
+  if (C.busy) return;
+  let dmg = 0;
+  if (a === "atk") {
+    dmg = Math.max(1, atk() + (hasSkill(0) ? Math.min(2, C.streak) : 0) + rnd(-1, 1));
+    C.streak++;
+    C.log.push(`Tu frappes : <b>${dmg}</b> dégâts.`);
+  } else if (a === "precis") {
+    dmg = Math.max(2, (atk() + rnd(0, 1)) * 2); C.used.precis = true; C.streak = 0;
+    C.log.push(`Coup précis ! <b>${dmg}</b> dégâts.`);
+  } else if (a === "garde") {
+    C.guard = true; C.used.garde = true; C.streak = 0; C.log.push("Tu lèves ta garde.");
+  } else if (a === "potion") {
+    G.potions--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + POTION_HEAL); C.streak = 0;
+    C.log.push(`Infusion : +${G.hp - before} PV.`);
+  } else if (a === "fuir") {
+    if (hasSkill(5) || Math.random() < 0.6) {
+      C.sl.cool = performance.now() + 3000; C.log.push("Tu prends la fuite.");
+      const h = F && F.hero; if (h) h.path = [];
+      C = null; save(); closeSheet(); toast("Fuite réussie"); return;
+    }
+    C.streak = 0; C.log.push("Le slime te bloque le passage !");
+  }
+  C.hp = Math.max(0, C.hp - dmg);
+  C.busy = true; renderCombat(); if (dmg) shake("#f-foe");
+  if (C.hp <= 0) { setTimeout(victory, 450); return; }
+  setTimeout(() => {
+    if (!C) return;
+    C.turn++;
+    const it = C.intent;
+    const taken = C.guard ? 0 : Math.max(1, it.dmg - def());
+    C.guard = false;
+    G.hp = Math.max(0, G.hp - taken);
+    C.log.push(taken ? `${esc(C.f.name)} : ${it.name}, <b>${taken}</b> dégâts.` : `${it.name} bloqué par ta garde !`);
+    C.intent = nextIntent(); C.busy = false;
+    save(); renderCombat(); if (taken) shake("#f-hero"); renderHUD();
+    if (G.hp <= 0) setTimeout(defeat, 500);
+  }, 650);
+}
+function victory() {
+  const { sl, f } = C; C = null;
+  F && (F.slimes = F.slimes.filter(s => s !== sl));
+  const gold = rnd(f.gold[0], f.gold[1]); G.gold += gold;
+  let loot = null;
+  if (Math.random() * 100 < f.drop + (G.rested ? 15 : 0)) { loot = makeItem(rollRarity(sl.kind === "king")); giveItem(loot); }
+  let extra = "";
+  if (sl.kind === "king") { G.q.king = true; todoUnlock("boss"); extra = `<p class="hint">Le Roi laisse tomber un bout de carte : « Là où l'étang dort, le vieux chêne sonne creux. »</p>`; }
+  else if (G.q.met) G.q.kills++;
+  save(); renderHUD();
+  sheet(`<h2>Victoire !</h2>
+    <p>${esc(f.name)} se dissout en gelée. <b class="num">+${gold} or</b>.</p>
+    ${loot ? `<div class="loot"><span class="label">Butin${G.rested ? " · Reposé" : ""}</span><b class="rar-${loot.rarity}">${esc(loot.name)}</b><span class="muted">${RARITY[loot.rarity]} · ${statText(loot)}${G.equip[loot.slot] === loot.id ? " · équipé" : " · à la Forge"}</span></div>` : ""}
+    ${extra}<button class="btn primary" id="v-ok" data-focus>Continuer</button>`);
+  $("#v-ok").onclick = () => {
+    closeSheet();
+    if (G.q.met && !G.q.q1 && G.q.kills >= 5) completeQ1();
+    setMsg(floorHint());
+  };
+}
+function defeat() {
+  C = null;
+  G.hp = Math.ceil(maxHp() / 2); G.pos = null; save();
+  info("K.O.", `<p>Tu te réveilles à la Taverne, avec la moitié de tes PV. Le tavernier hoche la tête : « Tout le monde tombe, à la prairie. »</p>`, "Continuer", () => go("ville"));
+}
+function journalSheet() {
+  const q = G.q, all = q.q1 && q.q2 && q.king;
+  sheet(`<h2>Journal</h2>${questLines()}${all && !q.stairs ? `<div class="hint">« Là où l'étang dort, le vieux chêne sonne creux. »</div>` : ""}<button class="btn primary" id="j-ok" data-focus>Fermer</button>`, { dismiss: true });
+  $("#j-ok").onclick = closeSheet;
+}
+
+/* ================= Événements ================= */
+document.addEventListener("click", e => {
+  const g = e.target.closest("[data-go]");
+  if (g) { e.preventDefault(); closeSheet(); go(g.dataset.go); return; }
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const id = b.dataset.id;
+  switch (b.dataset.act) {
+    case "rest": G.rest = { id, endAt: Date.now() + REST_SECONDS * 1000 }; break;
+    case "rest-cancel": G.rest = null; break;
+    case "rest-done": if (G.rest && Date.now() >= G.rest.endAt) { G.rested = true; G.rest = null; G.hp = maxHp(); toast("Reposé : meilleur butin pour cette pause"); } break;
+    case "buy-potion": if (G.gold >= POTION_PRICE) { G.gold -= POTION_PRICE; G.potions++; } break;
+    case "equip": { const it = itemById(id); const ratio = (G.hp ?? maxHp()) / maxHp(); G.equip[it.slot] = id; G.hp = Math.max(1, Math.round(ratio * maxHp())); break; }
+    case "upgrade": { const it = itemById(id); if (G.gold >= upCost(it) && it.lvl < 5) { G.gold -= upCost(it); it.lvl++; toast(`${esc(it.name)} +${it.lvl}`); } break; }
+    case "sell": { const it = itemById(id); if (G.equip[it.slot] !== id) { G.gold += sellPrice(it); G.items = G.items.filter(x => x !== it); } break; }
+    case "train": if (G.train < maxTrain() && G.gold >= trainCost()) { G.gold -= trainCost(); G.train++; G.hp = (G.hp ?? maxHp()) + 3; toast("Entraînement : +1 attaque, +3 PV max"); } break;
+    case "journal-sheet": journalSheet(); return;
+    default: return;
+  }
+  save(); render();
+});
+
+/* ================= Horloge : pause, énergie ================= */
+function tick() {
+  TODO = readTodo();
+  syncEnergy();
+  const p = pauseInfo();
+  const ok = !!p && !p.held;
+  if (ok) onNewPause(p);
+  if (ok !== !locked) {
+    const wasPlaying = !locked;
+    locked = !ok;
+    if (locked && wasPlaying) {
+      stopFloor(); C = null; save();
+      render();
+      info("Pause terminée", `<p>Ta progression est sauvegardée. Retour au travail : le prochain focus te redonnera ${perCycle()} énergie.</p>`, "Retour à la todo list", () => { location.href = "./#minuteur"; });
+      return;
+    }
+    if (!locked) scene = G.pos ? "etage" : "ville";
+    render();
+    return;
+  }
+  renderHUD();
+  if (scene === "taverne" && G.rest) {
+    const left = G.rest.endAt - Date.now(), el = $("#rest-count"), bt = $("#rest-btn");
+    if (el) el.textContent = fmt(left);
+    if (bt && left <= 0 && bt.disabled) { bt.disabled = false; bt.classList.add("primary"); }
+  }
+}
+window.addEventListener("storage", e => { if (e.key === TODO_KEY) tick(); if (e.key === GAME_KEY) { loadGame(); if (!F) render(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+locked = !(pauseInfo() && !pauseInfo().held);
+if (!locked) { onNewPause(pauseInfo()); scene = G.pos ? "etage" : "ville"; }
+syncEnergy();
+render();
+setInterval(tick, 500);
+// Accroche de test (jeu.html?debug) : utilisée seulement pour les tests automatisés.
+if (/[?&]debug\b/.test(location.search)) window.__quest = { get G() { return G; }, get F() { return F; }, get C() { return C; }, routeTo: (x, y) => routeTo(x, y), go };
+
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  try { navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}
+}
+})();
+</script>
+</body></html>

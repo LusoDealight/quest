@@ -254,6 +254,7 @@ textarea { width: 100%; min-height: 110px; font-family: ui-monospace, monospace;
       <a href="#quetes" data-tab="quetes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Quêtes</a>
       <a href="#minuteur" data-tab="minuteur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>Minuteur <span class="badge-dot" id="nav-dot" hidden></span></a>
       <a href="#rythme" data-tab="rythme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Rythme</a>
+      <a href="jeu.html" data-tab="tour"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 21V6h10v15M7 6V3h2v2h2V3h2v2h2V3h2v3M10 21v-4a2 2 0 0 1 4 0v4M4 21h16"/></svg>Tour</a>
       <a href="#succes" data-tab="succes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 4h8v5a4 4 0 0 1-8 0zM12 13v4M8 21h8M8 6H4a3 3 0 0 0 4 4M16 6h4a3 3 0 0 1-4 4"/></svg>Succès</a>
       <a href="#reglages" data-tab="reglages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Réglages</a>
     </nav>
@@ -297,8 +298,8 @@ const ACHIEVEMENTS = [
   { id: "cycles3", name: "Trois cycles",       desc: "Enchaîner 3 cycles de focus dans la journée." },
   { id: "rest",    name: "Vrai repos",         desc: "Prendre une pause gagnée jusqu'au bout." },
   { id: "xp1000",  name: "Sommet",             desc: "Atteindre 1000 XP." },
-  { id: "boss",    name: "Roi des slimes",     desc: "Vaincre le boss de l'étage 1.", soon: true },
-  { id: "legend",  name: "Trouvaille légendaire", desc: "Obtenir un objet légendaire.", soon: true },
+  { id: "boss",    name: "Roi des slimes",     desc: "Vaincre le boss de l'étage 1 (dans la Tour)." },
+  { id: "legend",  name: "Trouvaille légendaire", desc: "Obtenir un objet légendaire (dans la Tour)." },
 ];
 
 /* ================= État & stockage ================= */
@@ -527,7 +528,8 @@ function viewMinuteur() {
       Pause longue : ${Array.from({ length: P.every }, (_, i) => `<i class="${i < T.sinceLong ? "on" : ""}"></i>`).join("")}
       <span>· ${cyclesToday} cycle${cyclesToday > 1 ? "s" : ""} aujourd'hui</span>
     </div>
-    <p class="note">Pendant la pause, éloigne-toi de l'écran : marcher, boire un verre d'eau, regarder au loin, t'étirer. Bientôt, c'est aussi le moment d'explorer l'étage 1.</p>
+    <p class="note">Pendant la pause, éloigne-toi de l'écran : marcher, boire un verre d'eau, regarder au loin, t'étirer. C'est aussi le seul moment où la Tour est ouverte.</p>
+    ${T.phase === "pause" && T.remaining == null ? `<a class="btn sky" href="jeu.html" style="justify-self:center">Entrer dans la Tour</a>` : ""}
   </div>`;
 }
 function timerActions() {
