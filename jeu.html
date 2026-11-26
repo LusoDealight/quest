@@ -68,6 +68,11 @@ h1, h2, h3 { margin: 0; text-wrap: balance; }
 .chip.rested { background: var(--sky-soft); color: var(--sky); }
 main { flex: 1; padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 24px); display: grid; gap: 14px; align-content: start; }
 
+/* ---- Mode essai (aperçu sans todo list) ---- */
+.essai { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.essai .chip { background: var(--gold-soft); color: var(--gold); }
+.essai select { font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+
 /* ---- Ville ---- */
 .town-banner { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: #8fd0ef; }
 .town-banner svg { display: block; width: 100%; height: auto; }
@@ -157,6 +162,7 @@ body.floor main { padding: 0; position: relative; flex: 1; min-height: 0; displa
       <span class="pause-pill num" id="pause-pill">--:--</span>
     </div>
     <div class="hud-stats" id="hud-stats"></div>
+    <div class="essai" id="essai" hidden></div>
   </header>
   <main id="view"></main>
 </div>
@@ -170,6 +176,7 @@ body.floor main { padding: 0; position: relative; flex: 1; min-height: 0; displa
    La todo list (index.html) garde son état dans localStorage["quest.v1"] : XP, minuteur, journal des cycles, succès.
    Le jeu lit cet état sans le modifier, sauf pour débloquer les deux succès du jeu (boss, objet légendaire).
    Son propre état vit dans localStorage["quest.game.v1"]. */
+const ESSAI = !!window.QUEST_ESSAI; // aperçu autonome : simule la todo list (rang, pauses, cycles)
 const TODO_KEY = "quest.v1";
 const GAME_KEY = "quest.game.v1";
 const RANKS = [ // même table que la todo list
@@ -364,7 +371,7 @@ function viewLock() {
         held ? "Ta pause est suspendue. Reprends-la dans le minuteur pour rouvrir la Tour." :
         "La Tour ne s'ouvre que pendant une pause. Termine un focus pour gagner ta pause, puis reviens."}</p>
     <p class="muted">Énergie en réserve : <b class="num">${G.energy}</b> / ${energyCap()}. Chaque cycle de focus terminé en donne ${perCycle()}. Combattre et monter coûtent de l'énergie, explorer est gratuit.</p>
-    <a class="btn primary" href="./#minuteur">Ouvrir le minuteur</a>
+    ${ESSAI ? `<button class="btn primary" data-act="essai-pause">Lancer une pause d'essai</button>` : `<a class="btn primary" href="./#minuteur">Ouvrir le minuteur</a>`}
   </div>`;
 }
 const TOWER_SVG = `<svg viewBox="0 0 60 80" aria-hidden="true">
@@ -993,7 +1000,7 @@ function tick() {
     if (locked && wasPlaying) {
       stopFloor(); C = null; save();
       render();
-      info("Pause terminée", `<p>Ta progression est sauvegardée. Retour au travail : le prochain focus te redonnera ${perCycle()} énergie.</p>`, "Retour à la todo list", () => { location.href = "./#minuteur"; });
+      info("Pause terminée", `<p>Ta progression est sauvegardée. Retour au travail : le prochain focus te redonnera ${perCycle()} énergie.</p>`, ESSAI ? "Fermer" : "Retour à la todo list", () => { if (!ESSAI) location.href = "./#minuteur"; });
       return;
     }
     if (!locked) scene = G.pos ? "etage" : "ville";
@@ -1009,6 +1016,39 @@ function tick() {
 }
 window.addEventListener("storage", e => { if (e.key === TODO_KEY) tick(); if (e.key === GAME_KEY) { loadGame(); if (!F) render(); } });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+/* ---- Mode essai : remplace la todo list par quelques boutons ---- */
+function essaiEdit(fn) {
+  const d = readTodo() || { version: 1, xp: 150, subjects: [], ach: {}, settings: { sound: false }, log: {}, timer: { preset: "equilibre", phase: "idle", sinceLong: 0 } };
+  fn(d); d.log = d.log || {};
+  try { localStorage.setItem(TODO_KEY, JSON.stringify(d)); } catch (e) {}
+  TODO = d; tick();
+}
+const essaiPause = d => { d.timer = { preset: "equilibre", phase: "pause", kind: "short", duration: 15 * 60000, startedAt: Date.now(), endAt: Date.now() + 15 * 60000, remaining: null, sinceLong: 0, earned: null }; };
+function renderEssai() {
+  const el = $("#essai"); if (!el) return;
+  el.hidden = false;
+  el.innerHTML = `<span class="chip">Mode essai</span>
+    <label for="essai-rank" class="muted">Rang</label>
+    <select id="essai-rank">${RANKS.map((r, k) => `<option value="${r.xp}" ${k === rankIdx() ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select>
+    <button class="btn small" data-act="essai-focus">+1 focus</button>
+    <button class="btn small" data-act="essai-pause">Nouvelle pause</button>
+    <button class="btn small ghost" data-act="essai-end">Finir la pause</button>
+    <button class="btn small ghost" data-act="essai-reset">Tout recommencer</button>`;
+}
+if (ESSAI) {
+  const back = document.querySelector('.hud-top a'); if (back) { back.removeAttribute("href"); back.textContent = "Aperçu"; back.setAttribute("aria-label", "Aperçu du jeu"); }
+  if (!readTodo()) essaiEdit(essaiPause);
+  renderEssai();
+  document.addEventListener("change", e => { if (e.target.id === "essai-rank") { essaiEdit(d => { d.xp = +e.target.value; }); if (!F) render(); renderEssai(); } });
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-act^=essai]"); if (!b) return;
+    const a = b.dataset.act;
+    if (a === "essai-focus") essaiEdit(d => { const k = todayKey(); d.log[k] = d.log[k] || { focus: 0, pause: 0, cycles: 0 }; d.log[k].cycles++; d.log[k].focus += 50; });
+    if (a === "essai-pause") essaiEdit(essaiPause);
+    if (a === "essai-end") essaiEdit(d => { d.timer.endAt = Date.now() - 1; });
+    if (a === "essai-reset") { try { localStorage.removeItem(GAME_KEY); } catch (err) {} closeSheet(); stopFloor(); loadGame(); scene = "ville"; essaiEdit(d => { essaiPause(d); d.log = {}; d.ach = {}; }); render(); }
+  });
+}
 locked = !(pauseInfo() && !pauseInfo().held);
 if (!locked) { onNewPause(pauseInfo()); scene = G.pos ? "etage" : "ville"; }
 syncEnergy();
