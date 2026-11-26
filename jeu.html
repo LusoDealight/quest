@@ -119,7 +119,15 @@ body.floor { overflow: hidden; }
 body.floor .shell { height: 100%; max-width: none; }
 body.floor main { padding: 0; position: relative; flex: 1; min-height: 0; display: block; }
 #stage { position: absolute; inset: 0; background: #2f7a3b; touch-action: none; }
-#stage canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+#stage canvas { display: block; width: 100%; height: 100%; }
+.floor-loading { position: absolute; inset: 0; display: grid; place-items: center; color: #f1f5ef; font-family: var(--font-display); font-size: 20px; }
+.zoom { position: absolute; top: 10px; right: max(12px, env(safe-area-inset-right, 0px)); display: grid; gap: 6px; }
+.zoom .btn { width: 40px; height: 40px; padding: 0; font-size: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.sheet-bg.clear { background: transparent; pointer-events: none; }
+.sheet-bg.clear .sheet { pointer-events: auto; box-shadow: 0 -6px 24px rgba(0,0,0,.25); gap: 8px; }
+.duel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.duel > div { display: grid; gap: 3px; font-size: 14px; }
+.duel .hpbar { width: 100%; }
 .floor-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; justify-content: space-between; align-items: end;
   padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 10px); pointer-events: none; }
 .floor-bar > * { pointer-events: auto; }
@@ -132,12 +140,6 @@ body.floor main { padding: 0; position: relative; flex: 1; min-height: 0; displa
 .sheet { width: 100%; max-width: 560px; background: var(--surface); border-radius: 14px 14px 0 0; padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 16px); display: grid; gap: 12px; max-height: 92vh; overflow: auto; }
 @media (min-width: 600px) { .sheet-bg { align-items: center; } .sheet { border-radius: 14px; } }
 .sheet h2 { font-family: var(--font-display); font-size: 22px; }
-.arena { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; background: linear-gradient(#bfe6f7, #d9f1c9 60%, #79c257 60%); border-radius: 10px; padding: 10px; color: #1c2a22; }
-.fighter { display: grid; gap: 4px; justify-items: center; font-size: 13px; }
-.fighter canvas { width: 96px; height: 96px; image-rendering: pixelated; }
-.fighter .hpbar { width: 100%; max-width: 120px; background: rgba(0,0,0,.15); }
-.fighter.hit canvas { animation: hit .3s; }
-@keyframes hit { 0%,100% { transform: none; } 30% { transform: translateX(-6px); filter: brightness(2); } 60% { transform: translateX(5px); } }
 .intent { font-size: 12px; font-weight: 700; color: var(--danger); min-height: 18px; }
 .clog { font-size: 14px; min-height: 44px; display: grid; gap: 2px; }
 .clog div:not(:last-child) { color: var(--muted); }
@@ -250,12 +252,12 @@ function newGame() {
     items: [], equip: { weapon: null, armor: null, charm: null },
     pauseId: null, rested: false, rest: null,
     pos: null,
-    q: { met: false, kills: 0, q1: false, flowers: [], q2: false, king: false, stairs: false, floor2: false },
+    q: { v: 2, acc: {}, done: {}, kills: 0, flowers: [], jelly: 0, rod: 0, cat: 0, riddle: false, moss: false, king: false, stairs: false, floor2: false },
   };
 }
 let G;
 function loadGame() {
-  try { const raw = localStorage.getItem(GAME_KEY); if (raw) { const d = JSON.parse(raw); G = Object.assign(newGame(), d); G.q = Object.assign(newGame().q, d.q); return; } } catch (e) {}
+  try { const raw = localStorage.getItem(GAME_KEY); if (raw) { const d = JSON.parse(raw); G = Object.assign(newGame(), d); G.q = d.q && d.q.v === 2 ? Object.assign(newGame().q, d.q) : newGame().q; return; } } catch (e) {}
   G = newGame();
 }
 function save() { try { localStorage.setItem(GAME_KEY, JSON.stringify(G)); } catch (e) {} }
@@ -335,7 +337,7 @@ function renderHUD() {
 }
 function sheet(html, opts = {}) {
   const root = $("#sheet-root");
-  root.innerHTML = `<div class="sheet-bg"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
+  root.innerHTML = `<div class="sheet-bg${opts.clear ? " clear" : ""}"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
   if (opts.dismiss) root.querySelector(".sheet-bg").onclick = e => { if (e.target.classList.contains("sheet-bg")) closeSheet(); };
   const f = root.querySelector("[data-focus]") || root.querySelector("button"); f && f.focus({ preventScroll: true });
 }
@@ -400,7 +402,7 @@ const TOWN_SVG = `<svg viewBox="0 0 360 120" aria-hidden="true">
   <rect x="0" y="80" width="10" height="12" fill="#6b4a2b"/><circle cx="8" cy="72" r="14" fill="#3e9447"/></svg>`;
 function viewTown() {
   const q = G.q;
-  const qLeft = [!q.q1, !q.q2, !q.king].filter(Boolean).length;
+  const nAcc = Object.keys(q.acc).length, nDone = Object.keys(q.done).length;
   return `
   <div class="town-banner">${TOWN_SVG}</div>
   <div class="title-row"><div><h2>La Ville</h2><div class="muted">Au pied de la tour de 100 pierres. Prépare-toi, puis monte.</div></div></div>
@@ -408,8 +410,8 @@ function viewTown() {
     <button class="place" data-go="taverne"><span class="ico">${ICONS.taverne}</span><div><h3>Taverne</h3><p>${G.rested ? "Tu es Reposé pour cette pause : meilleur butin." : "Une minute loin de l'écran avant de partir : bonus Reposé."}</p></div><span class="chip">${G.rested ? "Reposé" : "1 min"}</span></button>
     <button class="place" data-go="forge"><span class="ico">${ICONS.forge}</span><div><h3>Forge</h3><p>Équiper, améliorer ou vendre ton butin.</p></div><span class="chip num">${G.items.length} obj.</span></button>
     <button class="place" data-go="maitre"><span class="ico">${ICONS.maitre}</span><div><h3>Maître d'armes</h3><p>Entraînement et compétences de ton rang.</p></div><span class="chip num">Niv. ${G.train}</span></button>
-    <button class="place" data-go="journal"><span class="ico">${ICONS.journal}</span><div><h3>Journal de quêtes</h3><p>${q.floor2 ? "Étage 1 terminé." : q.met ? `${qLeft} quête${qLeft > 1 ? "s" : ""} en cours.` : "Une bergère t'attend à l'entrée de l'étage 1."}</p></div><span class="chip"></span></button>
-    <button class="place gate" data-go="etage"><span class="ico">${ICONS.porte}</span><div><h3>Porte de la Tour · Étage 1</h3><p>La prairie et ses slimes. Explorer est gratuit, combattre coûte 1 énergie.</p></div><span class="chip">Entrer</span></button>
+    <button class="place" data-go="journal"><span class="ico">${ICONS.journal}</span><div><h3>Journal de quêtes</h3><p>${q.floor2 ? "Étage 1 terminé." : nAcc ? `${nDone} / 7 quêtes terminées.` : "Les habitants du hameau ont besoin d'aide."}</p></div><span class="chip"></span></button>
+    <button class="place gate" data-go="etage"><span class="ico">${ICONS.porte}</span><div><h3>Porte de la Tour · Étage 1</h3><p>La prairie en 3D, son hameau et ses slimes. Explorer est gratuit, combattre coûte 1 énergie.</p></div><span class="chip">Entrer</span></button>
   </div>`;
 }
 function viewTavern() {
@@ -464,331 +466,592 @@ function viewMaster() {
     <div>${G.train < mt ? `<button class="btn primary" data-act="train" ${G.gold < trainCost() ? "disabled" : ""}>S'entraîner · ${trainCost()} or</button>` : `<span class="chip">Plafond atteint : monte en rang dans la todo list</span>`}</div></div>
   <div class="panel"><h3>Compétences</h3><ul class="skills">${SKILLS.map((s, k) => `<li class="${k <= ri ? "" : "off"}"><span class="pip"></span><div><b>${esc(s.name)}</b> <span class="muted">· ${esc(RANKS[k].name)}, ${RANKS[k].xp} XP</span><div class="muted" style="font-size:13px">${esc(s.game)}</div></div></li>`).join("")}</ul></div>`;
 }
+/* ================= Quêtes de l'étage 1 ================= */
+const NPCS = {
+  maelle: { name: "Maëlle, la bergère", x: 17, y: 42 },
+  bran:   { name: "Bran, le forgeron", x: 17, y: 38 },
+  lila:   { name: "Lila", x: 23, y: 38 },
+  odon:   { name: "Odon, le pêcheur", x: 29, y: 23 },
+};
+const QUESTS = [
+  { id: "q1", giver: "maelle", title: "Les slimes de la prairie", turnIn: false,
+    prog: q => `Vaincre 5 slimes : ${Math.min(5, q.kills)} / 5.`, ok: q => q.kills >= 5, doneTxt: "Les haies du nord se sont écartées." },
+  { id: "q2", giver: "maelle", title: "Fleurs de rosée", turnIn: false,
+    prog: q => `Cueillir 3 fleurs de rosée, près de l'eau et des rochers : ${q.flowers.length} / 3.`, ok: q => q.flowers.length >= 3 },
+  { id: "q3", giver: "bran", title: "Gelée bleue", turnIn: true,
+    prog: q => q.jelly >= 3 ? "Rapporter les 3 gelées à Bran." : `Récupérer 3 gelées sur les slimes bleus, plutôt à l'est : ${q.jelly} / 3.`, ok: q => q.jelly >= 3 },
+  { id: "q4", giver: "odon", title: "La canne perdue", turnIn: true,
+    prog: q => q.rod ? "Rapporter la canne à Odon, au bord du lac." : "Retrouver la canne d'Odon, dans les roseaux au nord-est.", ok: q => q.rod >= 1 },
+  { id: "q5", giver: "lila", title: "Où est Pistache ?", turnIn: true,
+    prog: q => q.cat === 2 ? "Pistache te suit : ramène-le à Lila, au hameau." : "Retrouver le chat de Lila, caché dans les hautes herbes au sud-est.", ok: q => q.cat === 2 },
+  { id: "q6", giver: "pierre", title: "Le bois moussu", turnIn: false,
+    prog: q => !q.riddle ? "Résoudre l'énigme de la pierre, près du pont de l'ouest." : "Vaincre le Grand slime moussu, de l'autre côté du pont.", ok: q => q.moss },
+  { id: "q7", giver: "auto", title: "Le Roi des slimes", turnIn: false,
+    prog: () => "Il t'attend dans la clairière du nord, derrière les haies.", ok: q => q.king },
+];
+const qById = id => QUESTS.find(x => x.id === id);
 function questLines() {
   const q = G.q;
-  if (!q.met) return `<ul class="qlist"><li><b>Trouver la bergère</b><span class="muted">Elle garde ses moutons près de l'entrée de l'étage 1.</span></li></ul>`;
-  return `<ul class="qlist">
-    <li><b class="${q.q1 ? "done" : ""}">Les slimes de la prairie</b><span class="muted">${q.q1 ? "Terminée : les haies du nord se sont écartées." : `Vaincre 5 slimes : ${Math.min(5, q.kills)} / 5.`}</span></li>
-    <li><b class="${q.q2 ? "done" : ""}">Fleurs de rosée</b><span class="muted">${q.q2 ? "Terminée." : `Cueillir 3 fleurs de rosée, près de l'eau et des rochers : ${q.flowers.length} / 3.`}</span></li>
-    <li><b class="${q.king ? "done" : ""}">Le Roi des slimes</b><span class="muted">${q.king ? "Vaincu." : q.q1 ? "Il t'attend dans la clairière du nord." : "Se débloque après la première quête."}</span></li>
-  </ul>`;
+  const acc = QUESTS.filter(x => q.acc[x.id]);
+  if (!acc.length) return `<ul class="qlist"><li><b>Rencontrer les habitants</b><span class="muted">Le hameau est juste après l'entrée de l'étage 1. Les « ! » dorés signalent quelqu'un qui a besoin d'aide.</span></li></ul>`;
+  const open = QUESTS.length - acc.length;
+  return `<ul class="qlist">${acc.map(x => `<li><b class="${q.done[x.id] ? "done" : ""}">${esc(x.title)}</b><span class="muted">${q.done[x.id] ? (x.doneTxt || "Terminée.") : x.prog(q)}</span></li>`).join("")}</ul>
+    ${open ? `<p class="muted" style="margin:0">${open} autre${open > 1 ? "s" : ""} quête${open > 1 ? "s" : ""} à découvrir sur l'étage.</p>` : ""}`;
 }
+const allDone = () => QUESTS.every(x => G.q.done[x.id]);
 function viewJournal() {
-  const q = G.q, all = q.q1 && q.q2 && q.king;
+  const q = G.q;
   return `<button class="btn ghost back" data-go="ville">← La Ville</button>
-  <div class="title-row"><div><h2>Journal de quêtes</h2><div class="muted">Étage 1 · La prairie</div></div></div>
+  <div class="title-row"><div><h2>Journal de quêtes</h2><div class="muted">Étage 1 · La prairie · ${Object.keys(q.done).length} / ${QUESTS.length} terminées</div></div></div>
   <div class="panel">${questLines()}</div>
-  ${all && !q.stairs ? `<div class="hint">Le Roi a laissé tomber un bout de carte : « Là où l'étang dort, le vieux chêne sonne creux. »</div>` : ""}
-  ${q.stairs ? `<div class="hint">L'escalier caché est dans le tronc du vieux chêne, à l'ouest de l'étang.</div>` : ""}`;
+  ${q.king && !q.stairs ? `<div class="hint">Le Roi a laissé tomber un bout de carte : « Derrière l'eau qui tombe, la falaise est creuse. »</div>` : ""}
+  ${q.stairs ? `<div class="hint">L'escalier caché est derrière la cascade, au nord-ouest.</div>` : ""}`;
 }
 function viewFloor2() {
   return `<div class="lock">${TOWER_SVG}<h2>Étage 2 · La forêt d'automne</h2>
-    <p>Tu passes la tête par la trappe : des arbres orangés à perte de vue. Cet étage arrive dans la prochaine version.</p>
+    <p>Tu grimpes l'escalier taillé dans la falaise : des arbres orangés à perte de vue. Cet étage arrive dans la prochaine version.</p>
     <button class="btn primary" data-go="ville">Redescendre en ville</button></div>`;
 }
 
-/* ================= Étage 1 : carte ================= */
-const MAP = [
-  "TTTTTTTTTTTTTTTTTTTTTTTT",
-  "TTTTTTT,,......,,TTTTTTT",
-  "TTTTT,....,,......,TTTTT",
-  "TTTT,.....oo.......,TTTT",
-  "TTTT................TTTT",
-  "TTTT,..............,TTTT",
-  "TTTTT,,..........,,TTTTT",
-  "TTTTTTTTTThhhhTTTTTTTTTT",
-  "TTT..,,....::....,,..TTT",
-  "TT.....,...::...f.....TT",
-  "TT..oo.....::.......o.TT",
-  "TT.f.......::...TT....TT",
-  "TT,,.......::..TTTT..,TT",
-  "TTT,,..f...::...TT..,,TT",
-  "TTT........::.........TT",
-  "TT......:::::::.......TT",
-  "TT..~~~~:.....::......TT",
-  "T..~~~~~~:.....::..o..TT",
-  "T.O~~~~~~~:.....::....TT",
-  "T..~~~~~~~.:....::..f.TT",
-  "T,..~~~~~...:....::...TT",
-  "TT,.......f..:....::..TT",
-  "TT,,..........::::::..TT",
-  "TTT,..TT......::....,TTT",
-  "TTT..TTTT.....::...,,TTT",
-  "TT...TTT...f..::.......T",
-  "TT.,,.....,,..::...oo..T",
-  "TT.,,,....,,..::.......T",
-  "TTT...........::...TT.TT",
-  "TTTT...f......::...TTTTT",
-  "TTTTT,........::.....TTT",
-  "TTTTTT,,......::....TTTT",
-  "TTTTTTTT......::..TTTTTT",
-  "TTTTTTTTTT....P..TTTTTTT",
-  "TTTTTTTTTTTTTTTTTTTTTTTT",
+/* ================= Étage 1 : la carte ================= */
+const MW = 40, MH = 48;
+const START = { x: 20, y: 43 }, PORTAL = { x: 20, y: 45 }, RIDDLE = { x: 10, y: 11 }, FALL = { x: 8, y: 7 };
+const KING_POS = { x: 23, y: 5 }, MOSS_POS = { x: 4, y: 10 }, CAT = { x: 35, y: 31 }, ROD = { x: 36, y: 14 };
+const DEW = [{ id: "d1", x: 13, y: 21 }, { id: "d2", x: 29, y: 19 }, { id: "d3", x: 26, y: 31 }];
+const HOUSES = [
+  { x0: 13, y0: 36, x1: 15, y1: 38, roof: "#b3412e", wall: "#e8d9b5", forge: true },
+  { x0: 25, y0: 36, x1: 27, y1: 38, roof: "#2f74c0", wall: "#efe3c4" },
+  { x0: 13, y0: 41, x1: 15, y1: 43, roof: "#8e5bb5", wall: "#e8d9b5" },
+  { x0: 25, y0: 41, x1: 27, y1: 43, roof: "#c47f00", wall: "#efe3c4" },
 ];
-const MW = MAP[0].length, MH = MAP.length;
-const START = { x: 14, y: 32 }, NPC = { x: 17, y: 30 }, OAK = { x: 2, y: 18 }, KING_POS = { x: 11, y: 4 }, PORTAL = { x: 14, y: 33 };
-const DEW = [{ id: "d1", x: 3, y: 16 }, { id: "d2", x: 21, y: 10 }, { id: "d3", x: 18, y: 26 }];
+const WELL = { x: 22, y: 41 };
+const MAP = (() => {
+  const M = Array.from({ length: MH }, () => Array(MW).fill("."));
+  const set = (x, y, c) => { if (x >= 0 && y >= 0 && x < MW && y < MH) M[y][x] = c; };
+  const rect = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, c); };
+  let seed = 12345; const rr = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  // champ principal : herbes hautes, fleurs, arbres, rochers
+  for (let y = 13; y <= 34; y++) for (let x = 9; x <= 37; x++) {
+    const r = rr();
+    set(x, y, r < 0.05 ? "T" : r < 0.07 ? "o" : r < 0.2 ? "," : r < 0.26 ? "f" : ".");
+  }
+  rect(0, 0, MW - 1, 1, "T"); rect(0, MH - 2, MW - 1, MH - 1, "T"); rect(0, 0, 1, MH - 1, "T"); rect(MW - 2, 0, MW - 1, MH - 1, "T");
+  // falaises et cascade (nord-ouest)
+  rect(2, 2, 13, 7, "C"); set(FALL.x, FALL.y, "W");
+  // rivière et étang
+  rect(7, 8, 8, 17, "~"); set(FALL.x, FALL.y + 1, "."); set(9, 8, "."); rect(2, 18, 12, 24, "~"); set(12, 18, "."); set(12, 24, "."); set(2, 24, ".");
+  // bois moussu (ouest, derrière la rivière)
+  for (let y = 8; y <= 17; y++) for (let x = 2; x <= 6; x++) set(x, y, rr() < 0.22 ? "T" : rr() < 0.3 ? "," : ".");
+  rect(3, 9, 5, 11, "."); set(7, 12, "b"); set(8, 12, "b");
+  // clairière du Roi (nord), fermée par une haie
+  rect(14, 2, 15, 12, "T"); rect(31, 2, 37, 12, "T"); rect(14, 12, 31, 12, "T"); rect(21, 12, 23, 12, "h");
+  for (let y = 2; y <= 11; y++) for (let x = 16; x <= 30; x++) set(x, y, rr() < 0.1 ? "," : rr() < 0.06 ? "f" : ".");
+  set(18, 4, "o"); set(28, 9, "o"); set(17, 9, "T"); set(29, 3, "T");
+  rect(9, 8, 13, 12, "."); set(12, 9, ","); set(11, 8, "f");
+  // roseaux du nord-est, lac de l'est, prairie haute du sud-est
+  rect(28, 13, 37, 16, ","); set(33, 13, "o"); set(30, 15, "o"); set(ROD.x, ROD.y, ",");
+  rect(30, 17, 35, 21, "~"); set(30, 17, "."); set(35, 21, ".");
+  rect(30, 28, 37, 33, ","); set(34, 29, "T"); set(31, 32, "T");
+  set(24, 30, "o"); set(25, 30, "o"); set(24, 31, "o");
+  // chemins
+  for (let y = 13; y <= 44; y++) set(20, y, ":");
+  for (let x = 9; x <= 20; x++) set(x, 14, ":"); for (let y = 12; y <= 14; y++) set(9, y, ":");
+  for (let x = 20; x <= 31; x++) set(x, 26, ":"); for (let y = 22; y <= 26; y++) set(31, y, ":"); set(30, 22, ":");
+  for (let y = 13; y <= 16; y++) set(22, y, ":"); set(21, 13, ":");
+  // hameau
+  rect(2, 35, 37, 35, "T"); rect(17, 35, 23, 35, ":"); rect(18, 35, 22, 35, ".");
+  rect(2, 36, 11, 44, "T"); rect(30, 36, 37, 44, "T");
+  rect(12, 36, 29, 44, "s"); for (let y = 36; y <= 44; y++) set(20, y, ":"); for (let x = 16; x <= 24; x++) set(x, 40, ":");
+  HOUSES.forEach(h => rect(h.x0, h.y0, h.x1, h.y1, "H")); set(WELL.x, WELL.y, "w");
+  rect(2, 45, 37, 45, "T"); set(PORTAL.x, PORTAL.y, "P");
+  // dégager les points importants
+  [START, RIDDLE, CAT, ...DEW, ...Object.values(NPCS), { x: 9, y: 12 }, { x: 29, y: 22 }, { x: 13, y: 22 }].forEach(p => { if ("To~".includes(M[p.y][p.x])) set(p.x, p.y, "."); });
+  set(RIDDLE.x, RIDDLE.y, "R");
+  return M.map(r => r.join(""));
+})();
+function npcAt(x, y) { for (const [k, n] of Object.entries(NPCS)) if (n.x === x && n.y === y) return k; return null; }
 function tileAt(x, y) {
   if (x < 0 || y < 0 || x >= MW || y >= MH) return "T";
-  if (x === OAK.x && y === OAK.y) return G.q.stairs ? "E" : "O";
   const c = MAP[y][x];
-  if (c === "h" && G.q.q1) return ",";
+  if (c === "h" && G.q.done.q1) return ",";
+  if (c === "b" && G.q.riddle) return "B";
+  if (c === "W" && G.q.stairs) return "E";
   return c;
 }
-const walkable = (x, y) => { const c = tileAt(x, y); return !"T~ohO".includes(c) && !(x === NPC.x && y === NPC.y); };
+const walkable = (x, y) => !"TC~ohbHwRW".includes(tileAt(x, y)) && !npcAt(x, y);
 
-const TS = 48, PX = 3; // tuile de 16 « pixels » × 3
-let DPR = Math.min(2, window.devicePixelRatio || 1);
-const SPR = {};
-function mk(draw) {
-  const c = document.createElement("canvas"); c.width = c.height = TS * DPR;
-  const x = c.getContext("2d"); x.scale(PX * DPR, PX * DPR); draw(x); return c;
-}
-const R = (x, col, a, b, w, h) => { x.fillStyle = col; x.fillRect(a, b, w, h); };
-function grass(x, v) {
-  R(x, "#79c257", 0, 0, 16, 16);
-  for (let i = 0; i < 6; i++) R(x, i % 2 ? "#6ab04a" : "#8fd46a", (i * 7 + v * 5) % 15, (i * 5 + v * 11 + 3) % 15, 1, 1);
-}
-function buildSprites() {
-  for (let v = 0; v < 4; v++) SPR["g" + v] = mk(x => grass(x, v));
-  SPR.tall = mk(x => { grass(x, 1); [[2, 4], [9, 2], [11, 10], [4, 11]].forEach(([a, b]) => { R(x, "#4f9a37", a, b + 1, 1, 3); R(x, "#4f9a37", a + 1, b, 1, 4); R(x, "#5fae44", a + 2, b + 1, 1, 3); }); });
-  SPR.path = mk(x => { R(x, "#d8c088", 0, 0, 16, 16); [[3, 4], [11, 2], [7, 10], [13, 12], [2, 13]].forEach(([a, b], i) => R(x, i % 2 ? "#c4a96e" : "#e6d3a3", a, b, 2, 1)); });
-  for (let f = 0; f < 2; f++) SPR["w" + f] = mk(x => { R(x, "#4b9fd6", 0, 0, 16, 16); [[2, 3], [9, 7], [4, 12]].forEach(([a, b]) => R(x, "#7cc3ec", (a + f * 2) % 13, b, 4, 1)); R(x, "#3f8fc4", 0, 15, 16, 1); });
-  SPR.tree = mk(x => {
-    grass(x, 2); R(x, "#25632f", 3, 12, 10, 2); R(x, "#6b4a2b", 7, 11, 2, 5);
-    R(x, "#2f7a3b", 2, 2, 12, 10); R(x, "#2f7a3b", 3, 1, 10, 1); R(x, "#2f7a3b", 1, 3, 1, 7); R(x, "#2f7a3b", 14, 3, 1, 7);
-    R(x, "#45994e", 4, 3, 4, 3); R(x, "#45994e", 9, 6, 3, 2); R(x, "#25632f", 3, 10, 10, 2);
-  });
-  SPR.rock = mk(x => { grass(x, 3); R(x, "#5f8f45", 3, 13, 11, 1); R(x, "#8c9399", 3, 6, 10, 7); R(x, "#8c9399", 4, 5, 8, 1); R(x, "#b4bbc0", 5, 6, 5, 2); R(x, "#6b7177", 3, 12, 10, 1); });
-  SPR.flower = mk(x => { grass(x, 0); [[4, 5, "#f2f2f2"], [11, 9, "#f08bb4"], [6, 12, "#f2f2f2"], [12, 3, "#f5d04a"]].forEach(([a, b, c]) => { R(x, c, a - 1, b, 3, 1); R(x, c, a, b - 1, 1, 3); R(x, "#f5d04a", a, b, 1, 1); }); });
-  SPR.hedge = mk(x => { grass(x, 1); R(x, "#2b6b33", 0, 3, 16, 12); R(x, "#2b6b33", 1, 2, 14, 1); [[2, 4], [7, 6], [12, 4], [4, 10], [10, 11]].forEach(([a, b]) => R(x, "#3c8a45", a, b, 2, 2)); R(x, "#c8473a", 6, 9, 1, 1); R(x, "#c8473a", 13, 8, 1, 1); });
-  const oak = open => x => {
-    grass(x, 2); R(x, "#2f7a3b", 0, 0, 16, 4); R(x, "#45994e", 2, 0, 5, 2);
-    R(x, "#7a5230", 3, 3, 10, 13); R(x, "#5e3e22", 5, 4, 1, 4); R(x, "#5e3e22", 11, 5, 1, 6); R(x, "#8f6640", 4, 3, 2, 12);
-    R(x, "#2a1a0e", 6, 8, 4, 7); R(x, "#2a1a0e", 7, 7, 2, 1);
-    if (open) { R(x, "#b08a5a", 6, 13, 4, 1); R(x, "#b08a5a", 7, 11, 3, 1); R(x, "#b08a5a", 8, 9, 2, 1); R(x, "#f5d04a", 8, 7, 1, 1); }
-    else { [[5, 8], [7, 9], [9, 8], [6, 11], [8, 12], [10, 10], [6, 14], [9, 14]].forEach(([a, b]) => R(x, "#3c8a45", a, b, 2, 2)); }
-  };
-  SPR.oak = mk(oak(false)); SPR.stairs = mk(oak(true));
-  SPR.portal = mk(x => { R(x, "#d8c088", 0, 0, 16, 16); R(x, "#9aa3a8", 2, 3, 12, 13); R(x, "#9aa3a8", 4, 1, 8, 2); R(x, "#a7e1ff", 4, 5, 8, 11); R(x, "#dff5ff", 6, 4, 4, 1); R(x, "#7fc8ef", 5, 10, 6, 6); });
-}
-function tileSprite(c, x, y, t) {
-  switch (c) {
-    case "T": return SPR.tree; case ",": return SPR.tall; case ":": return SPR.path; case "~": return SPR["w" + (Math.floor(t / 600 + x) % 2)];
-    case "o": return SPR.rock; case "f": return SPR.flower; case "h": return SPR.hedge; case "O": return SPR.oak; case "E": return SPR.stairs; case "P": return SPR.portal;
-    default: return SPR["g" + ((x * 7 + y * 13) % 4)];
-  }
-}
+/* ================= Étage 1 : rendu 3D (Three.js) ================= */
+const THREE_URL = window.QUEST_THREE_URL || "./vendor/three.module.min.js";
+let THREE = null;
+let F = null; // état temporaire de l'étage (scène, slimes, chemin…)
+const DPR = Math.min(2, window.devicePixelRatio || 1);
 
-/* ---- Personnages (dessin pixel) ---- */
-function drawHero(x, ri, frame) {
-  R(x, "rgba(0,0,0,.2)", 4, 14, 8, 2);
-  if (ri >= 5) R(x, "#b3412e", 4, 7, 7, 7);
-  const lo = frame ? 1 : 0;
-  R(x, "#4a3a2a", 5, 12, 2, 2 + lo); R(x, "#4a3a2a", 9, 12, 2, 3 - lo);
-  R(x, ri >= 4 ? "#8a5a32" : "#3d7fa6", 4, 7, 8, 5); R(x, "#5e3e22", 4, 10, 8, 1);
-  if (ri >= 4) { R(x, "#a87344", 5, 8, 2, 1); R(x, "#a87344", 9, 8, 2, 1); }
-  R(x, "#f1c7a0", 5, 2, 6, 5); R(x, "#5b3a1e", 5, 1, 6, 2); R(x, "#5b3a1e", 4, 2, 1, 3); R(x, "#1c2a22", 9, 4, 1, 1);
-  if (ri >= 6) { R(x, "#f0c04a", 5, 0, 6, 1); R(x, "#f0c04a", 5, -1, 1, 1); R(x, "#f0c04a", 8, -1, 1, 1); R(x, "#f0c04a", 10, -1, 1, 1); }
-  if (ri >= 2) { R(x, "#d9e2e8", 12, 2, 1, 8); R(x, "#b9830d", 11, 9, 3, 1); R(x, "#5e3e22", 12, 10, 1, 2); }
-  else { R(x, "#8a6a3a", 12, 2, 1, 12); R(x, "#a8844c", 12, 2, 1, 1); }
-  if (ri >= 3) { R(x, "#8a5a32", 1, 7, 4, 5); R(x, "#b9830d", 2, 9, 2, 1); }
-  else if (ri >= 1) { R(x, "#5e3e22", 3, 8, 1, 2); R(x, "#f0c04a", 2, 10, 3, 3); R(x, "#fff3b0", 3, 11, 1, 1); }
-}
-function drawSlime(x, kind, t) {
-  const col = kind === "blue" ? ["#5ab0e8", "#3a86bf"] : kind === "king" ? ["#9be06e", "#5fae44"] : ["#7bd35a", "#4f9a37"];
-  const s = Math.sin(t / 180) > 0 ? 1 : 0;
-  R(x, "rgba(0,0,0,.2)", 2, 14, 12, 2);
-  R(x, col[1], 1, 10 + s, 14, 4 - s); R(x, col[0], 2, 8 + s, 12, 6 - s); R(x, col[0], 3, 6 + s, 10, 2); R(x, col[0], 5, 5 + s, 6, 1);
-  R(x, "rgba(255,255,255,.7)", 4, 7 + s, 2, 2);
-  R(x, "#1c2a22", 6, 9 + s, 1, 2); R(x, "#1c2a22", 9, 9 + s, 1, 2);
-  if (kind === "king") { R(x, "#f0c04a", 5, 2 + s, 6, 2); R(x, "#f0c04a", 5, 1 + s, 1, 1); R(x, "#f0c04a", 7, 0 + s, 2, 2); R(x, "#f0c04a", 10, 1 + s, 1, 1); R(x, "#c8473a", 7, 2 + s, 2, 1); }
-}
-function drawNPC(x, t) {
-  R(x, "rgba(0,0,0,.2)", 4, 14, 8, 2);
-  R(x, "#8a6a3a", 13, 2, 1, 12); R(x, "#8a6a3a", 12, 2, 2, 1); R(x, "#8a6a3a", 11, 3, 1, 1);
-  R(x, "#8e5bb5", 4, 7, 8, 7); R(x, "#f2f2f2", 6, 8, 4, 1);
-  R(x, "#f1c7a0", 5, 3, 6, 4); R(x, "#c4702e", 4, 4, 1, 4); R(x, "#c4702e", 11, 4, 1, 4); R(x, "#1c2a22", 9, 5, 1, 1);
-  R(x, "#e2c26a", 3, 2, 10, 2); R(x, "#e2c26a", 5, 0, 6, 2);
-  if (!G.q.met && Math.floor(t / 400) % 2 === 0) { R(x, "#f0c04a", 7, -6, 2, 3); R(x, "#f0c04a", 7, -2, 2, 1); }
-}
-function drawDew(x, t) {
-  R(x, "#3c8a45", 7, 8, 1, 6); R(x, "#3c8a45", 8, 11, 2, 1);
-  R(x, "#bfe9ff", 5, 5, 5, 3); R(x, "#bfe9ff", 6, 4, 3, 5); R(x, "#ffffff", 7, 6, 1, 1);
-  const k = Math.floor(t / 250) % 4; const sp = [[3, 3], [12, 4], [11, 9], [3, 9]][k];
-  R(x, "#ffffff", sp[0], sp[1], 1, 1);
-}
-function sprite(draw, size = 16) { // dessine un personnage dans un petit canvas (combat)
-  const c = document.createElement("canvas"); c.width = c.height = size * 6 * DPR;
-  const x = c.getContext("2d"); x.scale(6 * DPR * size / 16, 6 * DPR * size / 16); x.translate(0, 1); draw(x); return c;
-}
-
-/* ---- Boucle de l'étage ---- */
-let F = null; // état temporaire de l'étage (slimes, chemin…)
-function startFloor() {
+async function startFloor() {
   if (F) return;
-  $("#view").innerHTML = `<div id="stage"><canvas id="cv" aria-label="Carte de l'étage 1. Touche une case pour t'y rendre."></canvas></div>
+  $("#view").innerHTML = `<div id="stage"><div class="floor-loading" id="floor-loading">Chargement de la prairie…</div></div>
     <div class="floor-name">Étage 1 · La prairie</div>
+    <div class="zoom"><button class="btn small" data-act="zoom-in" aria-label="Rapprocher">+</button><button class="btn small" data-act="zoom-out" aria-label="Éloigner">−</button></div>
     <div class="floor-bar"><button class="btn" data-go="ville">Ville</button><div class="floor-msg" id="floor-msg"></div><button class="btn" data-act="journal-sheet">Journal</button></div>`;
-  if (!SPR.tree) buildSprites();
+  const token = {}; F = { token, loading: true };
+  try { THREE = THREE || await import(THREE_URL); }
+  catch (e) { $("#floor-loading").textContent = "Impossible de charger la 3D. Vérifie ta connexion puis réessaie."; F = null; return; }
+  if (!F || F.token !== token) return;
   const pos = G.pos || { ...START };
-  F = { hero: { x: pos.x, y: pos.y, rx: pos.x, ry: pos.y, dir: 1, path: [], moving: false }, slimes: [], t: 0, raf: 0, pending: null, last: performance.now(), msg: "" };
+  Object.assign(F, { loading: false, hero: { x: pos.x, y: pos.y, rx: pos.x, ry: pos.y, rot: Math.PI, path: [], moving: false }, trail: [], slimes: [], pending: null, last: performance.now(), zoom: 13, anim: [] });
+  buildScene();
   spawnSlimes();
-  const cv = $("#cv");
-  cv.addEventListener("pointerdown", onTap);
-  resizeCanvas();
-  setMsg(G.q.met ? floorHint() : "Touche une case pour t'y rendre. La bergère t'attend juste à droite.");
+  setMsg(floorHint());
   F.raf = requestAnimationFrame(loop);
 }
-function stopFloor() { if (F) { cancelAnimationFrame(F.raf); F = null; } }
-function resizeCanvas() {
-  const cv = $("#cv"); if (!cv) return;
-  const r = cv.getBoundingClientRect();
-  cv.width = Math.round(r.width * DPR); cv.height = Math.round(r.height * DPR);
+function stopFloor() {
+  if (!F) return;
+  cancelAnimationFrame(F.raf);
+  if (F.renderer) { F.renderer.dispose(); F.renderer.forceContextLoss?.(); }
+  F = null;
 }
-window.addEventListener("resize", resizeCanvas);
-function setMsg(m) { if (F) F.msg = m; const el = $("#floor-msg"); if (el) el.textContent = m; }
+function setMsg(m) { const el = $("#floor-msg"); if (el) el.textContent = m; }
 function floorHint() {
   const q = G.q;
-  if (!q.q1) return `Slimes vaincus : ${Math.min(5, q.kills)} / 5 · Fleurs : ${q.flowers.length} / 3`;
-  if (!q.king) return "Les haies du nord sont ouvertes : le Roi des slimes t'attend.";
-  if (!q.q2) return `Fleurs de rosée : ${q.flowers.length} / 3`;
-  if (!q.stairs) return "Le vieux chêne près de l'étang sonne creux…";
-  return "L'escalier est dans le vieux chêne, à l'ouest de l'étang.";
+  if (!Object.keys(q.acc).length) return "Touche le sol pour te déplacer. Les « ! » dorés du hameau ont besoin d'aide.";
+  if (q.cat === 2) return "Pistache te suit. Ramène-le à Lila, au hameau.";
+  const cur = QUESTS.find(x => q.acc[x.id] && !q.done[x.id]);
+  if (cur) return cur.ok(q) && cur.turnIn ? `Retourne voir ${NPCS[cur.giver].name.split(",")[0]}.` : cur.prog(q);
+  if (q.king && !q.stairs) return "« Derrière l'eau qui tombe, la falaise est creuse. »";
+  if (q.stairs) return "L'escalier est derrière la cascade, au nord-ouest.";
+  return "D'autres habitants ont peut-être besoin d'aide. Cherche les « ! ».";
 }
+
+/* ---- Matériaux et géométries ---- */
+function mat(color, o = {}) { return new THREE.MeshStandardMaterial({ color, roughness: o.r ?? 0.85, metalness: 0, flatShading: o.flat ?? true, transparent: !!o.op, opacity: o.op ?? 1, emissive: o.em || 0x000000, emissiveIntensity: o.ei ?? 1 }); }
+function box(w, h, d, m) { const me = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); me.castShadow = true; me.receiveShadow = true; return me; }
+function at(o, x, y, z) { o.position.set(x, y, z); return o; }
+function instanced(geo, material, list, setup) {
+  if (!list.length) return null;
+  const im = new THREE.InstancedMesh(geo, material, list.length);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), e = new THREE.Euler(), c = new THREE.Color();
+  list.forEach((it, i) => {
+    const r = setup(it, i);
+    p.set(...r.p); e.set(0, r.ry || 0, 0); q.setFromEuler(e); s.set(...(r.s || [1, 1, 1]));
+    m.compose(p, q, s); im.setMatrixAt(i, m);
+    if (r.c) im.setColorAt(i, c.set(r.c));
+  });
+  im.castShadow = true; im.receiveShadow = true;
+  return im;
+}
+let rs = 99; const rnd01 = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
+
+function buildScene() {
+  rs = 99;
+  const stage = $("#stage");
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(DPR);
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  stage.innerHTML = ""; stage.appendChild(renderer.domElement);
+  renderer.domElement.setAttribute("aria-label", "Carte 3D de l'étage 1. Touche le sol pour t'y rendre.");
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color("#bfe6f7");
+  scene.fog = new THREE.Fog("#bfe6f7", 22, 46);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 120);
+  scene.add(new THREE.HemisphereLight("#e8f6ff", "#5f8f45", 1.4));
+  const sun = new THREE.DirectionalLight("#fff4dc", 2.2);
+  sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14, near: 1, far: 50 });
+  sun.shadow.bias = -0.0008;
+  scene.add(sun, sun.target);
+  F.renderer = renderer; F.scene = scene; F.camera = camera; F.sun = sun;
+  F.ray = new THREE.Raycaster(); F.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  // sol
+  const tiles = { ground: [], water: [], cliff: [], tree: [], rock: [], tall: [], flower: [], hedge: [] };
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const c = MAP[y][x];
+    if (c === "~" || c === "b") tiles.water.push({ x, y });
+    else tiles.ground.push({ x, y, c });
+    if (c === "T") tiles.tree.push({ x, y });
+    if (c === "C") tiles.cliff.push({ x, y });
+    if (c === "o") tiles.rock.push({ x, y });
+    if (c === ",") tiles.tall.push({ x, y });
+    if (c === "f") tiles.flower.push({ x, y });
+    if (c === "h") tiles.hedge.push({ x, y });
+  }
+  const GREENS = ["#7cc35a", "#74bb52", "#83c962", "#6fb64e"];
+  scene.add(instanced(new THREE.BoxGeometry(1, 0.4, 1), mat("#ffffff"), tiles.ground, t => ({
+    p: [t.x, -0.2, t.y],
+    c: t.c === ":" ? (((t.x + t.y) % 3) ? "#d8c088" : "#d1b87e") : t.c === "s" || t.c === "H" || t.c === "w" ? (((t.x + t.y) % 2) ? "#cbbf98" : "#c4b78e") : t.c === "P" ? "#b4bbc0" : t.c === "C" ? "#8a8070" : GREENS[(t.x * 7 + t.y * 13) % 4],
+  })));
+  const bed = instanced(new THREE.BoxGeometry(1, 0.4, 1), mat("#2f6f9a"), tiles.water, t => ({ p: [t.x, -0.55, t.y] }));
+  scene.add(bed);
+  const water = instanced(new THREE.BoxGeometry(1, 0.06, 1), new THREE.MeshStandardMaterial({ color: "#4fa8de", roughness: 0.15, transparent: true, opacity: 0.82 }), tiles.water, t => ({ p: [t.x, -0.12, t.y] }));
+  water.castShadow = false; scene.add(water); F.water = water;
+  // falaises
+  scene.add(instanced(new THREE.BoxGeometry(1, 1, 1), mat("#8f8573"), tiles.cliff, t => { const h = 2.2 + ((t.x * 31 + t.y * 17) % 5) * 0.25 + (7 - t.y) * 0.15; return { p: [t.x, h / 2, t.y], s: [1, h, 1], c: ((t.x + t.y) % 2) ? "#8f8573" : "#867b69" }; }));
+  scene.add(instanced(new THREE.BoxGeometry(1.02, 0.18, 1.02), mat("#6fb64e"), tiles.cliff, t => { const h = 2.2 + ((t.x * 31 + t.y * 17) % 5) * 0.25 + (7 - t.y) * 0.15; return { p: [t.x, h + 0.05, t.y] }; }));
+  // arbres
+  const TREE_G = ["#2f7a3b", "#3a8a42", "#2b6e36", "#418f45"];
+  scene.add(instanced(new THREE.CylinderGeometry(0.1, 0.15, 0.8, 6), mat("#6b4a2b"), tiles.tree, t => ({ p: [t.x, 0.4, t.y] })));
+  scene.add(instanced(new THREE.IcosahedronGeometry(0.55, 0), mat("#ffffff"), tiles.tree, t => { const s = 0.85 + rnd01() * 0.4; return { p: [t.x + (rnd01() - .5) * .2, 1.05 + s * 0.2, t.y + (rnd01() - .5) * .2], s: [s, s * 1.1, s], ry: rnd01() * 3, c: TREE_G[(t.x + t.y * 3) % 4] }; }));
+  scene.add(instanced(new THREE.IcosahedronGeometry(0.36, 0), mat("#ffffff"), tiles.tree, t => ({ p: [t.x + 0.12, 1.6 + rnd01() * 0.2, t.y - 0.1], ry: rnd01() * 3, c: TREE_G[(t.x * 3 + t.y) % 4] })));
+  scene.add(instanced(new THREE.DodecahedronGeometry(0.36, 0), mat("#9aa0a6"), tiles.rock, t => ({ p: [t.x, 0.15, t.y], s: [1.1, 0.75, 1], ry: rnd01() * 3, c: rnd01() < .5 ? "#9aa0a6" : "#8c9399" })));
+  const blades = []; tiles.tall.forEach(t => { for (let i = 0; i < 6; i++) blades.push({ x: t.x + (rnd01() - .5) * .8, y: t.y + (rnd01() - .5) * .8 }); });
+  scene.add(instanced(new THREE.ConeGeometry(0.06, 0.42, 3), mat("#4f9a37"), blades, b => ({ p: [b.x, 0.2, b.y], ry: rnd01() * 3, s: [1, 0.7 + rnd01() * 0.7, 1], c: rnd01() < .5 ? "#4f9a37" : "#5fae44" })));
+  const petals = []; tiles.flower.forEach(t => { for (let i = 0; i < 5; i++) petals.push({ x: t.x + (rnd01() - .5) * .8, y: t.y + (rnd01() - .5) * .8 }); });
+  scene.add(instanced(new THREE.IcosahedronGeometry(0.07, 0), mat("#ffffff"), petals, b => ({ p: [b.x, 0.1, b.y], c: ["#f6f6f6", "#f08bb4", "#f5d04a", "#b9a2f0"][Math.floor(rnd01() * 4)] })));
+  // haie (disparaît après la première quête)
+  const hedge = new THREE.Group();
+  tiles.hedge.forEach(t => { hedge.add(at(box(1, 0.9, 0.8, mat("#2b6b33")), t.x, 0.45, t.y)); for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 0), mat("#3c8a45")); b.castShadow = true; hedge.add(at(b, t.x - 0.3 + i * 0.3, 0.9, t.y)); } });
+  scene.add(hedge); F.hedge = hedge;
+  // maisons, puits, portail
+  HOUSES.forEach(h => scene.add(makeHouse(h)));
+  scene.add(makeWell());
+  scene.add(makePortal());
+  // pont, pierre à énigme, cascade
+  F.bridge = makeBridge(); scene.add(F.bridge);
+  scene.add(makeRiddleStone());
+  F.fall = makeFall(); scene.add(F.fall);
+  // personnages et objets
+  F.heroMesh = makeHero(rankIdx()); scene.add(F.heroMesh);
+  F.npcs = {};
+  F.npcs.maelle = makePerson({ body: "#8e5bb5", skin: "#f1c7a0", hair: "#c4702e", hat: "#e2c26a", dress: true, staff: true });
+  F.npcs.bran = makePerson({ body: "#6b4a2b", skin: "#e0a77f", hair: "#3b2a1e", apron: "#3a3a3a", beard: true, bald: true, wide: 1.15 });
+  F.npcs.lila = makePerson({ body: "#f08bb4", skin: "#f1c7a0", hair: "#f5d04a", dress: true, scale: 0.72, tails: true });
+  F.npcs.odon = makePerson({ body: "#3d7a6a", skin: "#e8b48f", hair: "#9aa0a6", hat: "#5b6d61", beard: true, rod: true });
+  Object.entries(F.npcs).forEach(([k, m]) => { const n = NPCS[k]; at(m, n.x, 0, n.y); m.rotation.y = k === "odon" ? -Math.PI / 2 : 0; m.add(F.npcs[k].mark = makeMark()); scene.add(m); });
+  F.dew = DEW.map(d => { const g = makeDew(); at(g, d.x, 0, d.y); scene.add(g); return { d, g }; });
+  F.rod = makeRodItem(); at(F.rod, ROD.x, 0.05, ROD.y); scene.add(F.rod);
+  F.cat = makeCat(); scene.add(F.cat);
+  resizeRenderer();
+  renderer.domElement.addEventListener("pointerdown", onTap);
+}
+function resizeRenderer() {
+  if (!F || !F.renderer) return;
+  const r = $("#stage").getBoundingClientRect();
+  F.renderer.setSize(r.width, r.height, false);
+  F.renderer.domElement.style.width = "100%"; F.renderer.domElement.style.height = "100%";
+  F.camera.aspect = r.width / Math.max(1, r.height); F.camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resizeRenderer);
+
+function makeHouse(h) {
+  const g = new THREE.Group();
+  const w = h.x1 - h.x0 + 1, d = h.y1 - h.y0 + 1;
+  g.add(at(box(w - 0.2, 1.3, d - 0.2, mat(h.wall)), 0, 0.65, 0));
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.78, 1.2, 4), mat(h.roof));
+  roof.rotation.y = Math.PI / 4; roof.scale.set(w / Math.max(w, d), 1, d / Math.max(w, d)); roof.castShadow = true;
+  g.add(at(roof, 0, 1.9, 0));
+  g.add(at(box(0.45, 0.75, 0.05, mat("#6b4a2b")), 0, 0.38, d / 2 - 0.08));
+  [-0.8, 0.8].forEach(xo => g.add(at(box(0.35, 0.3, 0.05, mat("#fff3b0", { em: "#c9a640", ei: 0.25 })), xo, 0.8, d / 2 - 0.08)));
+  if (h.forge) {
+    g.add(at(box(0.35, 1, 0.35, mat("#6b7177")), 0.8, 2.2, -0.4));
+    const anvil = new THREE.Group(); anvil.add(at(box(0.5, 0.2, 0.25, mat("#4f555a")), 0, 0.45, 0)); anvil.add(at(box(0.25, 0.35, 0.2, mat("#4f555a")), 0, 0.2, 0));
+    g.add(at(anvil, 1.6, 0, d / 2 + 0.1));
+  }
+  return at(g, (h.x0 + h.x1) / 2, 0, (h.y0 + h.y1) / 2);
+}
+function makeWell() {
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.45, 0.5, 10, 1, true), mat("#9aa3a8", { flat: true })); ring.material.side = THREE.DoubleSide; ring.castShadow = true;
+  g.add(at(ring, 0, 0.25, 0));
+  g.add(at(new THREE.Mesh(new THREE.CircleGeometry(0.4, 10), mat("#2f6f9a")), 0, 0.2, 0)).children.at(-1).rotation.x = -Math.PI / 2;
+  [-0.4, 0.4].forEach(x => g.add(at(box(0.08, 1, 0.08, mat("#6b4a2b")), x, 0.5, 0)));
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(0.7, 0.45, 4), mat("#b3412e")); roof.rotation.y = Math.PI / 4; roof.castShadow = true;
+  g.add(at(roof, 0, 1.2, 0));
+  return at(g, WELL.x, 0, WELL.y);
+}
+function makePortal() {
+  const g = new THREE.Group(), stone = mat("#9aa3a8");
+  g.add(at(box(0.25, 1.6, 0.3, stone), -0.45, 0.8, 0)); g.add(at(box(0.25, 1.6, 0.3, stone), 0.45, 0.8, 0)); g.add(at(box(1.2, 0.25, 0.32, stone), 0, 1.7, 0));
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 1.5), new THREE.MeshBasicMaterial({ color: "#a7e1ff", transparent: true, opacity: 0.75, side: THREE.DoubleSide }));
+  g.add(at(glow, 0, 0.78, 0)); F.portalGlow = glow;
+  return at(g, PORTAL.x, 0, PORTAL.y);
+}
+function makeBridge() {
+  const g = new THREE.Group(), wood = mat("#a87344"), dark = mat("#7a5230");
+  for (let i = 0; i < 9; i++) { const p = at(box(0.22, 0.08, 1, wood), 6.6 + i * 0.25, 0.02, 12); p.userData.mid = i >= 2 && i <= 6; g.add(p); }
+  [11.55, 12.45].forEach(z => { const r = at(box(2.3, 0.08, 0.06, dark), 7.5, 0.45, z); r.userData.mid = true; g.add(r); [6.5, 7.5, 8.5].forEach(x => { const post = at(box(0.08, 0.45, 0.08, dark), x, 0.22, z); post.userData.mid = x === 7.5; g.add(post); }); });
+  return g;
+}
+function makeRiddleStone() {
+  const g = new THREE.Group();
+  const s = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.4, 1.5, 5), mat("#8c9399")); s.castShadow = true;
+  g.add(at(s, 0, 0.75, 0));
+  const rune = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.5), new THREE.MeshBasicMaterial({ color: "#8fe3ff", transparent: true, opacity: 0.85 }));
+  g.add(at(rune, 0, 0.85, 0.33)); F.rune = rune;
+  return at(g, RIDDLE.x, 0, RIDDLE.y);
+}
+function makeFall() {
+  const g = new THREE.Group();
+  const c = document.createElement("canvas"); c.width = 32; c.height = 128;
+  const x = c.getContext("2d"); x.fillStyle = "#cdeefc"; x.fillRect(0, 0, 32, 128);
+  for (let i = 0; i < 40; i++) { x.fillStyle = i % 2 ? "#ffffff" : "#9fd6f2"; x.fillRect((i * 7) % 32, (i * 23) % 128, 2, 12 + (i % 3) * 6); }
+  const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 2);
+  const sheet = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 3.2), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.9 }));
+  g.add(at(sheet, 0, 1.6, 0.52)); F.fallTex = tex; F.fallSheet = sheet;
+  const cave = at(box(0.7, 1.1, 0.1, mat("#1f1712")), 0, 0.55, 0.47); g.add(cave); F.cave = cave;
+  for (let i = 0; i < 6; i++) { const f = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16, 0), mat("#ffffff", { r: 0.4 })); g.add(at(f, -0.45 + i * 0.18, 0.05, 0.7)); }
+  return at(g, FALL.x, 0, FALL.y);
+}
+
+/* ---- Personnages low-poly ---- */
+function makeHero(ri) {
+  const g = new THREE.Group(), body = new THREE.Group();
+  const skin = mat("#f1c7a0"), hair = mat("#5b3a1e"), pants = mat("#4a3a2a");
+  const tunic = mat(ri >= 4 ? "#8a5a32" : "#3d7fa6");
+  const legL = at(box(0.17, 0.4, 0.17, pants), -0.11, 0.2, 0), legR = at(box(0.17, 0.4, 0.17, pants), 0.11, 0.2, 0);
+  body.add(at(box(0.46, 0.46, 0.3, tunic), 0, 0.63, 0));
+  body.add(at(box(0.48, 0.07, 0.32, mat("#5e3e22")), 0, 0.46, 0));
+  body.add(at(box(0.38, 0.36, 0.34, skin), 0, 1.06, 0));
+  body.add(at(box(0.4, 0.12, 0.36, hair), 0, 1.27, -0.01)); body.add(at(box(0.4, 0.22, 0.08, hair), 0, 1.13, -0.16));
+  [-0.08, 0.08].forEach(x => body.add(at(box(0.05, 0.07, 0.02, mat("#1c2a22")), x, 1.08, 0.175)));
+  const armL = at(box(0.13, 0.4, 0.13, tunic), -0.3, 0.64, 0), armR = at(box(0.13, 0.4, 0.13, tunic), 0.3, 0.64, 0);
+  body.add(armL, armR);
+  if (ri >= 2) { const sw = new THREE.Group(); sw.add(at(box(0.06, 0.62, 0.03, mat("#dfe7ec", { r: 0.3 })), 0, 0.42, 0)); sw.add(at(box(0.24, 0.05, 0.06, mat("#b9830d")), 0, 0.1, 0)); sw.add(at(box(0.05, 0.14, 0.05, mat("#5e3e22")), 0, 0.02, 0)); at(sw, 0.38, 0.42, 0.12); sw.rotation.x = 0.35; body.add(sw); }
+  else { const st = at(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 1.25, 5), mat("#8a6a3a")), 0.38, 0.62, 0.1); st.castShadow = true; body.add(st); }
+  if (ri >= 3) { const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 8), mat("#8a5a32")); sh.rotation.z = Math.PI / 2; sh.castShadow = true; body.add(at(sh, -0.4, 0.62, 0.05)); body.add(at(box(0.07, 0.09, 0.09, mat("#b9830d")), -0.44, 0.62, 0.05)); }
+  else if (ri >= 1) { const l = at(box(0.13, 0.15, 0.13, mat("#f0c04a", { em: "#f0b030", ei: 0.9 })), -0.36, 0.36, 0.06); body.add(l); }
+  if (ri >= 5) body.add(at(box(0.44, 0.62, 0.04, mat("#b3412e")), 0, 0.62, -0.18));
+  if (ri >= 6) { const cr = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.1, 8, 1, true), mat("#f0c04a", { r: 0.3, em: "#7a5a00", ei: 0.4 })); cr.material.side = THREE.DoubleSide; body.add(at(cr, 0, 1.36, 0)); }
+  g.add(body, legL, legR);
+  g.userData = { body, legL, legR, armL, armR };
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+function makePerson(o) {
+  const g = new THREE.Group(), s = o.scale || 1, wd = o.wide || 1;
+  const skin = mat(o.skin), hair = mat(o.hair), cloth = mat(o.body);
+  if (o.dress) g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.2 * wd, 0.32 * wd, 0.75, 6), cloth), 0, 0.42, 0));
+  else { g.add(at(box(0.17, 0.4, 0.17, mat("#4a3a2a")), -0.11, 0.2, 0)); g.add(at(box(0.17, 0.4, 0.17, mat("#4a3a2a")), 0.11, 0.2, 0)); g.add(at(box(0.48 * wd, 0.48, 0.32, cloth), 0, 0.64, 0)); }
+  if (o.apron) g.add(at(box(0.4, 0.5, 0.03, mat(o.apron)), 0, 0.55, 0.18));
+  g.add(at(box(0.38, 0.36, 0.34, skin), 0, 1.06, 0));
+  if (!o.bald) { g.add(at(box(0.4, 0.12, 0.36, hair), 0, 1.27, -0.01)); g.add(at(box(0.4, 0.24, 0.08, hair), 0, 1.12, -0.16)); }
+  if (o.beard) g.add(at(box(0.3, 0.16, 0.05, hair), 0, 0.93, 0.18));
+  if (o.tails) [-0.25, 0.25].forEach(x => g.add(at(box(0.1, 0.28, 0.1, hair), x, 1.05, -0.05)));
+  [-0.08, 0.08].forEach(x => g.add(at(box(0.05, 0.07, 0.02, mat("#1c2a22")), x, 1.08, 0.175)));
+  if (o.hat) { g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.04, 10), mat(o.hat)), 0, 1.3, 0)); g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.2, 8), mat(o.hat)), 0, 1.42, 0)); }
+  if (o.staff) { g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.4, 5), mat("#8a6a3a")), 0.4, 0.7, 0.05)); g.add(at(new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.025, 4, 8, Math.PI), mat("#8a6a3a")), 0.32, 1.4, 0.05)); }
+  if (o.rod) { const r = at(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 1.6, 5), mat("#8a6a3a")), 0.35, 0.9, 0.4); r.rotation.x = 0.8; g.add(r); }
+  g.scale.setScalar(s);
+  g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return g;
+}
+function makeMark() {
+  const g = new THREE.Group(), m = mat("#f0c04a", { em: "#f0b030", ei: 0.8 });
+  g.add(at(box(0.1, 0.32, 0.1, m), 0, 0.22, 0)); g.add(at(box(0.1, 0.1, 0.1, m), 0, 0, 0));
+  g.position.y = 1.85; g.visible = false;
+  return g;
+}
+const SLIME_COL = { green: "#7bd35a", blue: "#5ab0e8", king: "#9be06e", moss: "#7f9a3c" };
+function makeSlime(kind) {
+  const g = new THREE.Group(), body = new THREE.Group();
+  const blob = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), new THREE.MeshStandardMaterial({ color: SLIME_COL[kind], roughness: 0.25, transparent: true, opacity: 0.9 }));
+  blob.scale.set(1, 0.78, 1); blob.position.y = 0.31; blob.castShadow = true; body.add(blob);
+  body.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 4), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.7 })), -0.14, 0.52, 0.22));
+  [-0.12, 0.12].forEach(x => body.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), mat("#1c2a22")), x, 0.36, 0.34)));
+  if (kind === "king") {
+    const cm = mat("#f0c04a", { r: 0.3, em: "#7a5a00", ei: 0.4 });
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.12, 8, 1, true), cm); ring.material.side = THREE.DoubleSide;
+    body.add(at(ring, 0, 0.66, 0));
+    for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; body.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 4), cm), Math.cos(a) * 0.2, 0.78, Math.sin(a) * 0.2)); }
+    body.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.05, 0), mat("#c8473a")), 0, 0.68, 0.22));
+  }
+  if (kind === "moss") {
+    for (let i = 0; i < 4; i++) { const l = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 3), mat("#3c8a45")); l.rotation.z = (i - 1.5) * 0.4; body.add(at(l, (i - 1.5) * 0.1, 0.66, -0.05)); }
+    body.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.1, 5), mat("#f2f2f2")), 0.22, 0.58, 0.1));
+    body.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2), mat("#c8473a")), 0.22, 0.62, 0.1));
+  }
+  g.add(body); g.userData.body = body; g.userData.blob = blob;
+  const sc = kind === "king" ? 2.2 : kind === "moss" ? 1.8 : 1;
+  g.scale.setScalar(sc);
+  return g;
+}
+function makeDew() {
+  const g = new THREE.Group();
+  g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.4, 4), mat("#3c8a45")), 0, 0.2, 0));
+  const pm = mat("#bfe9ff", { em: "#6fc8ff", ei: 0.9 });
+  for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.08, 0), pm), Math.cos(a) * 0.1, 0.44, Math.sin(a) * 0.1)); }
+  g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.06, 0), mat("#ffffff", { em: "#ffffff", ei: 1 })), 0, 0.46, 0));
+  return g;
+}
+function makeRodItem() {
+  const g = new THREE.Group();
+  const r = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 1.4, 5), mat("#8a6a3a")); r.rotation.z = Math.PI / 2.3; g.add(at(r, 0, 0.12, 0));
+  g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.07, 0), mat("#c8473a", { em: "#c8473a", ei: 0.4 })), 0.6, 0.35, 0));
+  return g;
+}
+function makeCat() {
+  const g = new THREE.Group(), fur = mat("#e8913a");
+  g.add(at(box(0.22, 0.18, 0.4, fur), 0, 0.18, 0));
+  g.add(at(box(0.22, 0.2, 0.2, fur), 0, 0.32, 0.24));
+  [-0.07, 0.07].forEach(x => { g.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.1, 4), fur), x, 0.46, 0.24)); g.add(at(box(0.04, 0.04, 0.02, mat("#1c2a22")), x, 0.35, 0.345)); });
+  const tail = at(box(0.05, 0.3, 0.05, fur), 0, 0.3, -0.22); tail.rotation.x = -0.5; g.add(tail);
+  [[-0.07, 0.12], [0.07, 0.12], [-0.07, -0.14], [0.07, -0.14]].forEach(([x, z]) => g.add(at(box(0.06, 0.1, 0.06, fur), x, 0.05, z)));
+  g.traverse(m => { if (m.isMesh) m.castShadow = true; });
+  return g;
+}
+
+/* ---- Monstres ---- */
 function spawnSlimes() {
-  const s = [];
-  const free = [];
-  for (let y = 8; y < 30; y++) for (let x = 0; x < MW; x++) {
-    if (!walkable(x, y) || "fP".includes(tileAt(x, y))) continue;
-    if (Math.abs(x - START.x) + Math.abs(y - START.y) < 7) continue;
-    if (DEW.some(d => d.x === x && d.y === y)) continue;
+  F.slimes.forEach(s => F.scene.remove(s.mesh));
+  const s = [], free = [];
+  for (let y = 13; y < 34; y++) for (let x = 9; x < MW; x++) {
+    if (!walkable(x, y) || "f".includes(tileAt(x, y))) continue;
+    if (DEW.some(d => d.x === x && d.y === y) || (x === CAT.x && y === CAT.y) || (x === ROD.x && y === ROD.y)) continue;
     free.push({ x, y });
   }
-  for (let i = 0; i < 7 && free.length; i++) {
-    const p = free.splice(rnd(0, free.length - 1), 1)[0];
-    s.push({ id: uid(), kind: G.q.kills >= 3 && Math.random() < 0.35 ? "blue" : "green", x: p.x, y: p.y, rx: p.x, ry: p.y, next: performance.now() + rnd(600, 1600), cool: 0 });
+  for (let i = 0; i < 12 && free.length; i++) {
+    const p = free.splice(Math.floor(Math.random() * free.length), 1)[0];
+    const kind = p.x >= 24 && Math.random() < 0.6 ? "blue" : "green";
+    s.push({ id: uid(), kind, x: p.x, y: p.y, rx: p.x, ry: p.y, next: performance.now() + rnd(600, 1600), cool: 0, ph: Math.random() * 6 });
   }
-  if (G.q.q1 && !G.q.king) s.push({ id: "king", kind: "king", x: KING_POS.x, y: KING_POS.y, rx: KING_POS.x, ry: KING_POS.y, next: Infinity, cool: 0 });
+  if (G.q.done.q1 && !G.q.king) s.push({ id: "king", kind: "king", x: KING_POS.x, y: KING_POS.y, rx: KING_POS.x, ry: KING_POS.y, next: Infinity, cool: 0, ph: 0, big: true });
+  if (G.q.riddle && !G.q.moss) s.push({ id: "moss", kind: "moss", x: MOSS_POS.x, y: MOSS_POS.y, rx: MOSS_POS.x, ry: MOSS_POS.y, next: Infinity, cool: 0, ph: 0, big: true });
+  s.forEach(sl => { sl.mesh = makeSlime(sl.kind); F.scene.add(sl.mesh); });
   F.slimes = s;
 }
-function camera(cv) {
-  const w = cv.width / DPR, h = cv.height / DPR;
-  const mw = MW * TS, mh = MH * TS;
-  let cx = F.hero.rx * TS + TS / 2 - w / 2, cy = F.hero.ry * TS + TS / 2 - h / 2;
-  cx = mw <= w ? (mw - w) / 2 : Math.max(0, Math.min(mw - w, cx));
-  cy = mh <= h ? (mh - h) / 2 : Math.max(0, Math.min(mh - h + 60, cy)); // 60 : place pour la barre du bas
-  return { cx, cy, w, h };
-}
+function removeSlime(sl) { if (!F) return; F.scene.remove(sl.mesh); F.slimes = F.slimes.filter(s => s !== sl); }
+
+/* ---- Boucle ---- */
 function loop(now) {
-  if (!F) return;
-  const dt = Math.min(64, now - F.last); F.last = now; F.t = now;
+  if (!F || F.loading) return;
+  const dt = Math.min(64, now - F.last); F.last = now;
   if (!sheetOpen()) update(dt, now);
-  draw(now);
+  draw(now, dt);
   F.raf = requestAnimationFrame(loop);
 }
 function update(dt, now) {
-  const h = F.hero, speed = (hasSkill(5) ? 7 : 5) / 1000;
+  const h = F.hero, speed = (hasSkill(5) ? 4.6 : 3.4) / 1000;
   if (!h.moving && h.path.length) {
     const n = h.path[0];
     const sl = F.slimes.find(s => s.x === n.x && s.y === n.y);
     if (sl) { h.path = []; meet(sl); return; }
     h.path.shift();
-    if (n.x !== h.x) h.dir = n.x > h.x ? 1 : -1;
+    F.trail.unshift({ x: h.x, y: h.y }); F.trail.length = Math.min(F.trail.length, 4);
     h.x = n.x; h.y = n.y; h.moving = true;
   }
   if (h.moving) {
     const dx = h.x - h.rx, dy = h.y - h.ry, d = Math.hypot(dx, dy), st = speed * dt;
+    h.rot = Math.atan2(dx, dy);
     if (d <= st) { h.rx = h.x; h.ry = h.y; h.moving = false; arrive(); }
     else { h.rx += dx / d * st; h.ry += dy / d * st; }
   }
   for (const s of F.slimes) {
-    s.rx += (s.x - s.rx) * Math.min(1, dt / 120); s.ry += (s.y - s.ry) * Math.min(1, dt / 120);
     if (now < s.next) continue;
-    s.next = now + rnd(700, 1700);
+    s.next = now + rnd(800, 1900);
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].sort(() => Math.random() - .5);
     for (const [ax, ay] of dirs) {
       const nx = s.x + ax, ny = s.y + ay;
-      if (ny < 8 || !walkable(nx, ny) || "P".includes(tileAt(nx, ny)) || F.slimes.some(o => o.x === nx && o.y === ny)) continue;
+      if (ny < 13 || ny > 33 || !walkable(nx, ny) || F.slimes.some(o => o.x === nx && o.y === ny)) continue;
       if (nx === h.x && ny === h.y) { if (now > s.cool && !h.moving) { meet(s); return; } continue; }
       s.x = nx; s.y = ny; break;
     }
   }
 }
 function arrive() {
-  const h = F.hero;
+  const h = F.hero, q = G.q;
   G.pos = { x: h.x, y: h.y };
   const dew = DEW.find(d => d.x === h.x && d.y === h.y);
-  if (dew && !G.q.flowers.includes(dew.id) && dewVisible(dew)) {
-    G.q.flowers.push(dew.id);
-    toast(`Fleur de rosée ${G.q.flowers.length} / 3`);
-    if (G.q.flowers.length >= 3 && !G.q.q2) {
-      if (G.q.met) completeQ2(); else toast("Une bergère saurait quoi en faire…");
-    }
-    setMsg(floorHint());
+  if (dew && dewVisible(dew)) {
+    q.flowers.push(dew.id);
+    toast(`Fleur de rosée ${q.flowers.length} / 3`);
+    if (q.flowers.length >= 3 && q.acc.q2 && !q.done.q2) completeQuest("q2");
+    else if (!q.acc.q2) toast("Une bergère saurait quoi en faire…");
   }
+  if (h.x === ROD.x && h.y === ROD.y && !q.rod) { q.rod = 1; toast("Tu trouves une canne à pêche !"); if (!q.acc.q4) toast("Quelqu'un au bord du lac la cherche peut-être."); }
+  if (h.x === CAT.x && h.y === CAT.y && q.cat === 1) { q.cat = 2; toast("Miaou ! Pistache te suit."); }
+  setMsg(floorHint());
   if (tileAt(h.x, h.y) === "E") { h.path = []; climb(); }
   else if (h.x === PORTAL.x && h.y === PORTAL.y) { h.path = []; save(); go("ville"); return; }
   if (!h.path.length && F.pending) { const p = F.pending; F.pending = null; interact(p); }
   save();
 }
-function dewVisible(d) {
-  if (G.q.flowers.includes(d.id)) return false;
-  if (hasSkill(1)) return true;
-  return Math.abs(d.x - F.hero.x) + Math.abs(d.y - F.hero.y) <= 3;
+const dewVisible = d => !G.q.flowers.includes(d.id) && (hasSkill(1) || Math.abs(d.x - F.hero.x) + Math.abs(d.y - F.hero.y) <= 4);
+function npcHasNews(k) {
+  const q = G.q;
+  return QUESTS.some(x => x.giver === k && (!q.acc[x.id] || (x.turnIn && !q.done[x.id] && x.ok(q))));
 }
-function draw(now) {
-  const cv = $("#cv"); if (!cv) return;
-  const ctx = cv.getContext("2d");
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingEnabled = false;
-  const { cx, cy, w, h } = camera(cv);
-  ctx.fillStyle = "#2f7a3b"; ctx.fillRect(0, 0, w, h);
-  const x0 = Math.max(0, Math.floor(cx / TS)), y0 = Math.max(0, Math.floor(cy / TS));
-  const x1 = Math.min(MW - 1, Math.ceil((cx + w) / TS)), y1 = Math.min(MH - 1, Math.ceil((cy + h) / TS));
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++)
-    ctx.drawImage(tileSprite(tileAt(x, y), x, y, now), Math.round(x * TS - cx), Math.round(y * TS - cy), TS, TS);
-  const at = (gx, gy, fn) => { ctx.save(); ctx.translate(Math.round(gx * TS - cx), Math.round(gy * TS - cy)); ctx.scale(PX, PX); fn(ctx); ctx.restore(); };
-  DEW.forEach(d => { if (dewVisible(d)) at(d.x, d.y, x => drawDew(x, now)); });
-  at(NPC.x, NPC.y, x => drawNPC(x, now));
-  if (F.target) { ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 2; ctx.strokeRect(Math.round(F.target.x * TS - cx) + 4, Math.round(F.target.y * TS - cy) + 4, TS - 8, TS - 8); }
-  const actors = [...F.slimes.map(s => ({ y: s.ry, f: () => s.kind === "king"
-      ? (() => { ctx.save(); ctx.translate(Math.round(s.rx * TS - cx - TS / 2), Math.round(s.ry * TS - cy - TS)); ctx.scale(PX * 2, PX * 2); drawSlime(ctx, "king", now); ctx.restore(); })()
-      : at(s.rx, s.ry, x => drawSlime(x, s.kind, now + s.x * 97)) })),
-    { y: F.hero.ry, f: () => { ctx.save(); ctx.translate(Math.round(F.hero.rx * TS - cx + (F.hero.dir < 0 ? TS : 0)), Math.round(F.hero.ry * TS - cy)); ctx.scale(PX * F.hero.dir, PX); drawHero(ctx, rankIdx(), F.hero.moving ? Math.floor(now / 140) % 2 : 0); ctx.restore(); } }];
-  actors.sort((a, b) => a.y - b.y).forEach(a => a.f());
+function draw(now, dt) {
+  const { renderer, scene, camera, sun } = F, h = F.hero, q = G.q;
+  // héros
+  const hm = F.heroMesh, u = hm.userData;
+  hm.position.set(h.rx, 0, h.ry);
+  let dr = h.rot - hm.rotation.y; while (dr > Math.PI) dr -= Math.PI * 2; while (dr < -Math.PI) dr += Math.PI * 2;
+  hm.rotation.y += dr * Math.min(1, dt / 90);
+  const sw = h.moving ? Math.sin(now / 90) * 0.6 : 0;
+  u.legL.rotation.x = sw; u.legR.rotation.x = -sw; u.armL.rotation.x = -sw * 0.7; u.armR.rotation.x = sw * 0.7;
+  u.body.position.y = h.moving ? Math.abs(Math.sin(now / 90)) * 0.05 : Math.sin(now / 600) * 0.01;
+  // slimes
+  for (const s of F.slimes) {
+    s.rx += (s.x - s.rx) * Math.min(1, dt / 160); s.ry += (s.y - s.ry) * Math.min(1, dt / 160);
+    const b = Math.abs(Math.sin(now / 260 + s.ph));
+    s.mesh.position.set(s.rx, b * (s.big ? 0.08 : 0.18), s.ry);
+    s.mesh.userData.body.scale.set(1 + (1 - b) * 0.12, 0.88 + b * 0.18, 1 + (1 - b) * 0.12);
+    const tx = h.rx - s.rx, tz = h.ry - s.ry; if (Math.hypot(tx, tz) < 6) s.mesh.rotation.y = Math.atan2(tx, tz);
+  }
+  // animations de combat
+  F.anim = F.anim.filter(a => {
+    const t = (now - a.t0) / a.dur; if (t >= 1) { a.end && a.end(); return false; }
+    a.step(Math.sin(t * Math.PI)); return true;
+  });
+  // PNJ, objets
+  for (const [k, m] of Object.entries(F.npcs)) {
+    m.mark.visible = npcHasNews(k); m.mark.position.y = 1.85 + Math.sin(now / 300) * 0.06; m.mark.rotation.y = now / 600;
+    const tx = h.rx - NPCS[k].x, tz = h.ry - NPCS[k].y;
+    if (Math.hypot(tx, tz) < 4) m.rotation.y += (Math.atan2(tx, tz) - m.rotation.y) * 0.08;
+  }
+  F.dew.forEach(({ d, g }) => { g.visible = dewVisible(d); g.position.y = Math.sin(now / 400 + d.x) * 0.04; g.rotation.y = now / 1200; });
+  F.rod.visible = !q.rod;
+  F.cat.visible = q.cat >= 1;
+  if (q.cat === 1) { F.cat.position.set(CAT.x, 0, CAT.y); F.cat.rotation.y = Math.sin(now / 900); }
+  else if (q.cat === 2) { const t = F.trail[1] || F.trail[0] || h; F.cat.position.x += (t.x - F.cat.position.x) * 0.06; F.cat.position.z += (t.y - F.cat.position.z) * 0.06; F.cat.rotation.y = Math.atan2(h.rx - F.cat.position.x, h.ry - F.cat.position.z); }
+  else if (q.cat === 3) { F.cat.position.set(NPCS.lila.x + 1, 0, NPCS.lila.y + 0.4); F.cat.rotation.y = -1.2; }
+  F.hedge.visible = !q.done.q1;
+  F.bridge.children.forEach(p => { if (p.userData.mid) p.visible = q.riddle; });
+  F.rune.material.opacity = q.riddle ? 0.15 : 0.6 + Math.sin(now / 400) * 0.3;
+  F.fallTex.offset.y = -now / 900;
+  F.fallSheet.material.opacity = q.stairs ? 0.45 : 0.9; F.cave.visible = q.stairs;
+  F.portalGlow.material.opacity = 0.55 + Math.sin(now / 500) * 0.2;
+  if (F.water.material) F.water.material.color.setHSL(0.56, 0.62, 0.58 + Math.sin(now / 1500) * 0.03);
+  // caméra et soleil
+  const d = C ? 6.5 : F.zoom;
+  const cx = h.rx, cz = h.ry;
+  const tgt = new THREE.Vector3(cx, d * 1.1, cz + d * 0.55);
+  if (!F.camInit) { camera.position.copy(tgt); F.camInit = true; } else camera.position.lerp(tgt, Math.min(1, dt / 220));
+  camera.lookAt(cx, 0.4, cz - (C ? 0 : 0.3));
+  sun.position.set(cx + 8, 16, cz + 6); sun.target.position.set(cx, 0, cz);
+  renderer.render(scene, camera);
 }
 function onTap(e) {
-  if (sheetOpen()) return;
-  const cv = $("#cv"), r = cv.getBoundingClientRect();
-  const { cx, cy } = camera(cv);
-  const tx = Math.floor((e.clientX - r.left + cx) / TS), ty = Math.floor((e.clientY - r.top + cy) / TS);
-  routeTo(tx, ty);
+  if (sheetOpen() || !F || !F.camera) return;
+  const r = F.renderer.domElement.getBoundingClientRect();
+  const v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  F.ray.setFromCamera(v, F.camera);
+  const hit = new THREE.Vector3();
+  if (!F.ray.ray.intersectPlane(F.plane, hit)) return;
+  routeTo(Math.round(hit.x), Math.round(hit.z));
 }
 function routeTo(tx, ty) {
   const h = F.hero;
-  let interactWith = null;
-  const isKing = F.slimes.find(s => s.kind === "king" && Math.abs(s.x - tx) <= 1 && ty >= s.y - 1 && ty <= s.y);
-  if (tx === NPC.x && ty === NPC.y) interactWith = "npc";
-  else if (tx === OAK.x && ty === OAK.y && tileAt(tx, ty) === "O") interactWith = "oak";
-  else if (tileAt(tx, ty) === "h") interactWith = "hedge";
+  const big = F.slimes.find(s => s.big && Math.abs(s.x - tx) <= 1 && Math.abs(s.y - ty) <= 1);
+  let what = npcAt(tx, ty);
+  const c = tileAt(tx, ty);
+  if (!what) what = { R: "pierre", W: "cascade", h: "haie", b: "pont", H: "maison", w: "puits" }[c] || null;
   let goals;
-  if (isKing) goals = [{ x: isKing.x, y: isKing.y }];
-  else if (interactWith) goals = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => ({ x: tx + a, y: ty + b })).filter(p => walkable(p.x, p.y));
+  if (big) goals = [{ x: big.x, y: big.y }];
+  else if (what) goals = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => ({ x: tx + a, y: ty + b })).filter(p => walkable(p.x, p.y));
   else if (walkable(tx, ty)) goals = [{ x: tx, y: ty }];
   else return;
-  const start = { x: h.x, y: h.y };
-  if (interactWith && goals.some(g => g.x === start.x && g.y === start.y)) { h.path = []; interact(interactWith); return; }
-  const path = bfs(start, goals);
+  if (what === "maison") { const hs = HOUSES.find(o => tx >= o.x0 && tx <= o.x1 && ty >= o.y0 && ty <= o.y1); goals = []; for (let x = hs.x0 - 1; x <= hs.x1 + 1; x++) for (let y = hs.y0 - 1; y <= hs.y1 + 1; y++) if (walkable(x, y)) goals.push({ x, y }); }
+  if (what && goals.some(g => g.x === h.x && g.y === h.y)) { h.path = []; interact(what); return; }
+  const path = bfs({ x: h.x, y: h.y }, goals);
   if (!path) { toast("Impossible d'y aller d'ici"); return; }
-  h.path = path; F.pending = interactWith; F.target = { x: tx, y: ty };
-  setTimeout(() => { if (F && F.target && F.target.x === tx && F.target.y === ty) F.target = null; }, 500);
+  h.path = path; F.pending = what;
 }
 function bfs(s, goals) {
   const key = (x, y) => y * MW + x, prev = new Map([[key(s.x, s.y), null]]), q = [s];
   const isGoal = p => goals.some(g => g.x === p.x && g.y === p.y);
   while (q.length) {
     const c = q.shift();
-    if (isGoal(c)) { const out = []; let k = key(c.x, c.y), p = c; while (p && !(p.x === s.x && p.y === s.y)) { out.unshift(p); p = prev.get(key(p.x, p.y)); } return out; }
+    if (isGoal(c)) { const out = []; let p = c; while (p && !(p.x === s.x && p.y === s.y)) { out.unshift(p); p = prev.get(key(p.x, p.y)); } return out; }
     for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const n = { x: c.x + a, y: c.y + b }, k = key(n.x, n.y);
       if (prev.has(k)) continue;
@@ -799,7 +1062,7 @@ function bfs(s, goals) {
   return null;
 }
 document.addEventListener("keydown", e => {
-  if (!F || sheetOpen()) return;
+  if (!F || !F.hero || sheetOpen()) return;
   const d = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], z: [0, -1], s: [0, 1], q: [-1, 0], d: [1, 0], w: [0, -1], a: [-1, 0] }[e.key];
   if (!d) return;
   e.preventDefault();
@@ -807,35 +1070,75 @@ document.addEventListener("keydown", e => {
   routeTo(h.x + d[0], h.y + d[1]);
 });
 
-/* ---- Interactions ---- */
+/* ---- Dialogues et quêtes ---- */
+const INTROS = {
+  q1: "« Les slimes dévorent mes trèfles ! Tu veux bien en chasser <b>cinq</b> ? »",
+  q2: "« Et si tu croises des <b>fleurs de rosée</b>, près de l'eau et des rochers, rapporte-m'en trois : elles soignent mes moutons. »",
+  q3: "« Il me faut de la <b>gelée de slime bleu</b> pour tremper l'acier. Trois morceaux, et je te forge une lame digne de ce nom. Les bleus traînent plutôt à l'est. »",
+  q4: "« J'ai perdu ma <b>canne</b> en courant après un slime… dans les roseaux, au nord-est. Sans elle, pas de poisson ce soir. »",
+  q5: "« Mon chat <b>Pistache</b> s'est sauvé dans les hautes herbes, au sud-est. Tu peux le retrouver ? Il est orange, on le voit de loin… enfin, normalement. »",
+};
+function completeQuest(id) {
+  const q = G.q; if (q.done[id]) return;
+  q.done[id] = true;
+  let txt = "";
+  if (id === "q1") { G.gold += 15; const it = makeItem(1); giveItem(it); q.acc.q7 = true; txt = `Maëlle te lance 15 or et <b class="rar-1">${esc(it.name)}</b>.</p><p>Au nord, un bruit de branches : <b>les haies s'écartent</b>. Le Roi des slimes t'attend.`; }
+  if (id === "q2") { G.gold += 10; G.potions += 2; txt = "Maëlle te donne 10 or et 2 infusions."; }
+  if (id === "q3") { G.gold += 10; const it = makeItem(2, "weapon"); giveItem(it); txt = `Bran plonge la gelée dans sa forge et te tend <b class="rar-2">${esc(it.name)}</b>, Épique. Et 10 or.`; }
+  if (id === "q4") { G.gold += 15; G.potions += 2; txt = "Odon serre sa canne comme un trésor : 15 or et 2 infusions pour toi."; }
+  if (id === "q5") { G.gold += 10; const it = makeItem(1, "charm"); giveItem(it); q.cat = 3; txt = `Lila serre Pistache dans ses bras et t'offre <b class="rar-1">${esc(it.name)}</b>. Et 10 or.`; }
+  save(); renderHUD();
+  info("Quête terminée", `<p><b>${esc(qById(id).title)}${/[?!]$/.test(qById(id).title) ? "" : "."}</b> ${txt}</p>`, "Continuer", () => { if (id === "q1" && F) spawnSlimes(); setMsg(floorHint()); });
+}
+function talk(k) {
+  const q = G.q, n = NPCS[k];
+  const mine = QUESTS.filter(x => x.giver === k);
+  const ready = mine.find(x => q.acc[x.id] && !q.done[x.id] && x.turnIn && x.ok(q));
+  if (ready) { completeQuest(ready.id); return; }
+  const fresh = mine.filter(x => !q.acc[x.id]);
+  if (fresh.length) {
+    fresh.forEach(x => { q.acc[x.id] = true; });
+    if (k === "lila") q.cat = Math.max(q.cat, 1);
+    save();
+    info(n.name, `<p>${fresh.map(x => INTROS[x.id]).join("</p><p>")}</p><p class="muted">Combattre coûte 1 énergie. Explorer et cueillir sont gratuits.</p>`, "J'y vais", () => {
+      if (q.flowers.length >= 3 && q.acc.q2 && !q.done.q2) completeQuest("q2");
+      if (q.kills >= 5 && q.acc.q1 && !q.done.q1) completeQuest("q1");
+      setMsg(floorHint());
+    });
+    return;
+  }
+  const open = mine.filter(x => !q.done[x.id]);
+  const lines = { maelle: "« Les moutons te saluent. »", bran: "« Repasse quand tu veux, l'enclume est chaude. »", lila: "« Pistache dort au soleil. Merci encore ! »", odon: "« Ça mord, aujourd'hui. »" };
+  info(n.name, open.length ? `<p>« Courage ! »</p><ul class="qlist">${open.map(x => `<li><b>${esc(x.title)}</b><span class="muted">${x.prog(q)}</span></li>`).join("")}</ul>` : `<p>${lines[k]}</p>${q.king && !q.stairs && k === "maelle" ? "<p>« On raconte que la falaise derrière la cascade est creuse… »</p>" : ""}`);
+}
+const RIDDLE_OPTS = ["Le vent", "La rivière", "Un slime"];
+function riddle() {
+  const q = G.q;
+  if (q.riddle) { info("La pierre à énigme", "<p>Les runes se sont éteintes. Le pont tient bon.</p>"); return; }
+  q.acc.q6 = true; save();
+  sheet(`<h2>La pierre à énigme</h2>
+    <p>Des runes bleues s'allument : <i>« Je cours sans jambes, je murmure sans bouche, et je dors dans l'étang. Qui suis-je ? »</i></p>
+    <p class="muted">Réponds juste et le pont du bois moussu se reconstruira.</p>
+    <div class="cacts">${RIDDLE_OPTS.map((o, i) => `<button class="btn" data-r="${i}">${o}</button>`).join("")}<button class="btn ghost" data-r="-1">Plus tard</button></div>`);
+  document.querySelectorAll("[data-r]").forEach(b => b.onclick = () => {
+    const i = +b.dataset.r; closeSheet();
+    if (i < 0) return;
+    if (i === 1) { q.riddle = true; save(); spawnSlimes(); info("Le pont se reconstruit", "<p>Les planches glissent d'elles-mêmes au-dessus de l'eau. De l'autre côté, quelque chose de gros et moussu remue.</p>", "Continuer", () => setMsg(floorHint())); }
+    else info("La pierre reste muette", "<p>Les runes clignotent puis s'éteignent. Réessaie quand tu veux.</p>");
+  });
+}
 function interact(what) {
   const q = G.q;
-  if (what === "npc") {
-    if (!q.met) {
-      q.met = true; save();
-      info("Maëlle, la bergère", `<p>« Ah, un grimpeur ! Les slimes dévorent mes trèfles. Tu veux bien en chasser <b>cinq</b> ? Et si tu croises des <b>fleurs de rosée</b>, près de l'eau et des rochers, rapporte-m'en trois : elles soignent mes moutons. »</p>
-        <p class="muted">Combattre coûte 1 énergie. Cueillir est gratuit.</p>`, "J'y vais", () => { if (q.flowers.length >= 3 && !q.q2) completeQ2(); setMsg(floorHint()); });
-    } else if (q.q1 && q.q2 && q.king) {
-      info("Maëlle", `<p>« Le Roi est tombé ? Alors la prairie respire. On dit que le vieux chêne près de l'étang <i>sonne creux</i>… »</p>`);
-    } else {
-      info("Maëlle", `<p>« Courage ! »</p>${questLines()}`, "Continuer");
-    }
-  } else if (what === "oak") {
-    if (q.q1 && q.q2 && q.king) {
-      q.stairs = true; save();
-      info("Le vieux chêne", `<p>Tu écartes le lierre. Le tronc est creux… et un <b>escalier</b> grimpe à l'intérieur !</p><p class="muted">Monter coûte ${hasSkill(5) ? 1 : 2} énergie.</p>`, "Continuer", () => setMsg(floorHint()));
-    } else info("Le vieux chêne", `<p>Un chêne immense, couvert de lierre. Son écorce est tiède. Rien d'autre… pour l'instant.</p>`);
-  } else if (what === "hedge") {
-    info("Une haie épaisse", `<p>Impossible de passer. Derrière, on entend un gros <i>splotch</i>.</p>`);
+  if (NPCS[what]) return talk(what);
+  if (what === "pierre") return riddle();
+  if (what === "cascade") {
+    if (q.king) { if (!q.stairs) { q.stairs = true; save(); } info("Derrière la cascade", `<p>Tu passes sous l'eau glacée : la falaise est creuse, et un <b>escalier</b> monte dans la roche !</p><p class="muted">Monter coûte ${hasSkill(5) ? 1 : 2} énergie. Avance vers la cascade pour grimper.</p>`, "Continuer", () => setMsg(floorHint())); }
+    else info("La cascade", "<p>Une cascade fraîche dévale la falaise. Le bruit couvre tout.</p>");
   }
-}
-function completeQ1() {
-  G.q.q1 = true; G.gold += 15; giveItem(makeItem(1)); save();
-  info("Quête terminée", `<p><b>Les slimes de la prairie.</b> Maëlle te lance 15 or et un objet Rare.</p><p>Au nord, un bruit de branches : <b>les haies s'écartent</b>.</p>`, "Continuer", () => { if (F) spawnSlimes(); setMsg(floorHint()); });
-}
-function completeQ2() {
-  G.q.q2 = true; G.gold += 10; G.potions += 2; save();
-  info("Quête terminée", `<p><b>Fleurs de rosée.</b> Maëlle te donne 10 or et 2 infusions.</p>`, "Continuer", () => setMsg(floorHint()));
+  if (what === "haie") info("Une haie épaisse", "<p>Impossible de passer. Derrière, on entend un gros <i>splotch</i>. Maëlle en sait peut-être plus.</p>");
+  if (what === "pont") info("Le pont effondré", "<p>Il ne reste que deux planches. Une pierre gravée de runes se dresse juste à côté.</p>");
+  if (what === "maison") info("Une maison du hameau", "<p>Ça sent la soupe et le foin. Tu n'entres pas sans être invité.</p>");
+  if (what === "puits") info("Le puits", "<p>Tu jettes un caillou : <i>plouf</i>, très loin. Un écho répond « Courage ! ».</p>");
 }
 function climb() {
   const cost = hasSkill(5) ? 1 : 2;
@@ -847,8 +1150,9 @@ function climb() {
 
 /* ================= Combat au tour par tour ================= */
 const FOES = {
-  green: { name: "Slime vert", hp: 7, atk: 2, gold: [2, 5], drop: 35, cost: 1 },
-  blue:  { name: "Slime bleu", hp: 11, atk: 3, gold: [4, 7], drop: 45, cost: 1 },
+  green: { name: "Slime vert", hp: 7, atk: 2, gold: [2, 5], drop: 30, cost: 1 },
+  blue:  { name: "Slime bleu", hp: 11, atk: 3, gold: [4, 7], drop: 40, cost: 1 },
+  moss:  { name: "Grand slime moussu", hp: 30, atk: 4, gold: [20, 20], drop: 100, cost: 2 },
   king:  { name: "Roi des slimes", hp: 45, atk: 5, gold: [25, 25], drop: 100, cost: 2 },
 };
 let C = null;
@@ -858,70 +1162,72 @@ function meet(sl) {
     sl.cool = performance.now() + 2500;
     toast(`Plus assez d'énergie (${f.cost} requise)`);
     setMsg("Le slime te repousse. Termine un cycle de focus pour regagner de l'énergie, ou explore.");
-    const h = F.hero; h.path = [];
+    F.hero.path = [];
     return;
   }
-  G.energy -= f.cost; save();
+  G.energy -= f.cost; save(); renderHUD();
   if (G.hp == null) G.hp = maxHp();
+  F.hero.rot = Math.atan2(sl.x - F.hero.x, sl.y - F.hero.y);
   C = { sl, f, hp: f.hp, max: f.hp, turn: 0, streak: 0, used: {}, guard: false, log: [`${f.name} surgit !`], busy: false };
   C.intent = nextIntent();
   renderCombat();
 }
 function nextIntent() {
-  if (C.f === FOES.king && (C.turn + 1) % 3 === 0) return { name: "Écrasement", dmg: 9 };
+  if (C.f.cost > 1 && (C.turn + 1) % 3 === 0) return C.sl.kind === "king" ? { name: "Écrasement", dmg: 9 } : { name: "Spores", dmg: 7 };
   if (Math.random() < 0.2) return { name: "Bond", dmg: C.f.atk + 2 };
   return { name: "Choc", dmg: C.f.atk };
 }
 function renderCombat() {
-  const ri = rankIdx(), mh = maxHp();
+  const mh = maxHp();
   const sk = [];
   if (hasSkill(2)) sk.push(`<button class="btn" data-c="precis" ${C.used.precis ? "disabled" : ""}>Coup précis</button>`);
   if (hasSkill(3)) sk.push(`<button class="btn" data-c="garde" ${C.used.garde ? "disabled" : ""}>Garde</button>`);
-  sheet(`<h2>${esc(C.f.name)}</h2>
-    <div class="arena">
-      <div class="fighter" id="f-hero"><span id="hero-sp"></span><b>Toi</b><span class="hpbar"><i style="width:${(G.hp / mh) * 100}%"></i></span><span class="num">${G.hp} / ${mh} PV</span></div>
-      <div class="fighter" id="f-foe"><span id="foe-sp"></span><b>${esc(C.f.name)}</b><span class="hpbar"><i style="width:${(C.hp / C.max) * 100}%"></i></span><span class="num">${C.hp} / ${C.max} PV</span></div>
+  sheet(`<div class="duel">
+      <div><b>Toi</b><span class="hpbar"><i style="width:${(G.hp / mh) * 100}%"></i></span><span class="num muted">${G.hp} / ${mh} PV</span></div>
+      <div><b>${esc(C.f.name)}</b><span class="hpbar"><i style="width:${(C.hp / C.max) * 100}%"></i></span><span class="num muted">${C.hp} / ${C.max} PV</span></div>
     </div>
     <div class="intent">${hasSkill(1) ? `Intention : ${esc(C.intent.name)} (${C.intent.dmg} dégâts)` : ""}${C.guard ? " · Garde levée" : ""}</div>
-    <div class="clog">${C.log.slice(-3).map(l => `<div>${l}</div>`).join("")}</div>
+    <div class="clog">${C.log.slice(-2).map(l => `<div>${l}</div>`).join("")}</div>
     <div class="cacts">
       <button class="btn primary" data-c="atk" data-focus>Attaquer${hasSkill(0) && C.streak ? ` (+${Math.min(2, C.streak)})` : ""}</button>
       ${sk.join("")}
       <button class="btn" data-c="potion" ${G.potions ? "" : "disabled"}>Infusion (${G.potions})</button>
       <button class="btn ghost" data-c="fuir">Fuir</button>
-    </div>`);
-  $("#hero-sp").appendChild(sprite(x => drawHero(x, ri, 0)));
-  $("#foe-sp").appendChild(sprite(x => { x.translate(16, 0); x.scale(-1, 1); drawSlime(x, C.sl.kind, 0); }));
+    </div>`, { clear: true });
   document.querySelectorAll("[data-c]").forEach(b => b.onclick = () => combatAct(b.dataset.c));
   if (C.busy) document.querySelectorAll("[data-c]").forEach(b => b.disabled = true);
 }
-function shake(id) { const el = $(id); if (el) { el.classList.remove("hit"); void el.offsetWidth; el.classList.add("hit"); } }
+function flash(mesh, color) {
+  const mats = []; mesh.traverse(o => { if (o.isMesh && o.material.emissive) mats.push([o.material, o.material.emissive.getHex()]); });
+  F.anim.push({ t0: performance.now(), dur: 260, step: k => mats.forEach(([m]) => m.emissive.set(color).multiplyScalar(k)), end: () => mats.forEach(([m, e]) => m.emissive.setHex(e)) });
+}
+function lunge(mesh, from, to, after) {
+  F.anim.push({ t0: performance.now(), dur: 320, step: k => { mesh.position.x = from.x + (to.x - from.x) * 0.45 * k; mesh.position.z = from.y + (to.y - from.y) * 0.45 * k; }, end: after });
+}
+function heroAttackFx() { if (!F || !C) return; const s = C.sl; F.anim.push({ t0: performance.now(), dur: 320, step: k => { const b = F.heroMesh.userData.body; b.position.z = 0.35 * k; F.heroMesh.userData.armR.rotation.x = -1.6 * k; } }); setTimeout(() => F && flash(s.mesh, "#ffffff"), 160); }
+function foeAttackFx() { if (!F || !C) return; const s = C.sl; F.anim.push({ t0: performance.now(), dur: 360, step: k => { s.mesh.position.x = s.rx + (F.hero.rx - s.rx) * 0.4 * k; s.mesh.position.z = s.ry + (F.hero.ry - s.ry) * 0.4 * k; s.mesh.position.y = 0.5 * k; } }); setTimeout(() => F && flash(F.heroMesh, "#ff3b2f"), 180); }
 function combatAct(a) {
   if (C.busy) return;
   let dmg = 0;
   if (a === "atk") {
     dmg = Math.max(1, atk() + (hasSkill(0) ? Math.min(2, C.streak) : 0) + rnd(-1, 1));
-    C.streak++;
-    C.log.push(`Tu frappes : <b>${dmg}</b> dégâts.`);
+    C.streak++; C.log.push(`Tu frappes : <b>${dmg}</b> dégâts.`);
   } else if (a === "precis") {
-    dmg = Math.max(2, (atk() + rnd(0, 1)) * 2); C.used.precis = true; C.streak = 0;
-    C.log.push(`Coup précis ! <b>${dmg}</b> dégâts.`);
+    dmg = Math.max(2, (atk() + rnd(0, 1)) * 2); C.used.precis = true; C.streak = 0; C.log.push(`Coup précis ! <b>${dmg}</b> dégâts.`);
   } else if (a === "garde") {
     C.guard = true; C.used.garde = true; C.streak = 0; C.log.push("Tu lèves ta garde.");
   } else if (a === "potion") {
-    G.potions--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + POTION_HEAL); C.streak = 0;
-    C.log.push(`Infusion : +${G.hp - before} PV.`);
+    G.potions--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + POTION_HEAL); C.streak = 0; C.log.push(`Infusion : +${G.hp - before} PV.`);
   } else if (a === "fuir") {
-    if (hasSkill(5) || Math.random() < 0.6) {
-      C.sl.cool = performance.now() + 3000; C.log.push("Tu prends la fuite.");
-      const h = F && F.hero; if (h) h.path = [];
+    if (C.f.cost > 1 && !hasSkill(5) ? Math.random() < 0.4 : (hasSkill(5) || Math.random() < 0.6)) {
+      C.sl.cool = performance.now() + 3000; F.hero.path = [];
       C = null; save(); closeSheet(); toast("Fuite réussie"); return;
     }
     C.streak = 0; C.log.push("Le slime te bloque le passage !");
   }
   C.hp = Math.max(0, C.hp - dmg);
-  C.busy = true; renderCombat(); if (dmg) shake("#f-foe");
-  if (C.hp <= 0) { setTimeout(victory, 450); return; }
+  C.busy = true; renderCombat(); if (dmg) heroAttackFx();
+  if (C.hp <= 0) { setTimeout(victory, 500); return; }
   setTimeout(() => {
     if (!C) return;
     C.turn++;
@@ -930,20 +1236,25 @@ function combatAct(a) {
     C.guard = false;
     G.hp = Math.max(0, G.hp - taken);
     C.log.push(taken ? `${esc(C.f.name)} : ${it.name}, <b>${taken}</b> dégâts.` : `${it.name} bloqué par ta garde !`);
+    foeAttackFx();
     C.intent = nextIntent(); C.busy = false;
-    save(); renderCombat(); if (taken) shake("#f-hero"); renderHUD();
+    save(); renderCombat(); renderHUD();
     if (G.hp <= 0) setTimeout(defeat, 500);
-  }, 650);
+  }, 700);
 }
 function victory() {
   const { sl, f } = C; C = null;
-  F && (F.slimes = F.slimes.filter(s => s !== sl));
+  removeSlime(sl);
+  const q = G.q;
   const gold = rnd(f.gold[0], f.gold[1]); G.gold += gold;
-  let loot = null;
-  if (Math.random() * 100 < f.drop + (G.rested ? 15 : 0)) { loot = makeItem(rollRarity(sl.kind === "king")); giveItem(loot); }
-  let extra = "";
-  if (sl.kind === "king") { G.q.king = true; todoUnlock("boss"); extra = `<p class="hint">Le Roi laisse tomber un bout de carte : « Là où l'étang dort, le vieux chêne sonne creux. »</p>`; }
-  else if (G.q.met) G.q.kills++;
+  let loot = null, extra = "";
+  if (Math.random() * 100 < f.drop + (G.rested ? 15 : 0)) { loot = makeItem(rollRarity(f.cost > 1)); giveItem(loot); }
+  if (sl.kind === "king") { q.king = true; q.done.q7 = true; todoUnlock("boss"); extra = `<p class="hint">Le Roi laisse tomber un bout de carte : « Derrière l'eau qui tombe, la falaise est creuse. »</p>`; }
+  else if (sl.kind === "moss") { q.moss = true; q.done.q6 = true; extra = `<p><b>Quête terminée : Le bois moussu.</b></p>`; }
+  else {
+    q.kills++;
+    if (sl.kind === "blue" && q.acc.q3 && q.jelly < 3) { q.jelly++; extra = `<p>Tu ramasses une <b>gelée bleue</b> (${q.jelly} / 3).</p>`; }
+  }
   save(); renderHUD();
   sheet(`<h2>Victoire !</h2>
     <p>${esc(f.name)} se dissout en gelée. <b class="num">+${gold} or</b>.</p>
@@ -951,7 +1262,7 @@ function victory() {
     ${extra}<button class="btn primary" id="v-ok" data-focus>Continuer</button>`);
   $("#v-ok").onclick = () => {
     closeSheet();
-    if (G.q.met && !G.q.q1 && G.q.kills >= 5) completeQ1();
+    if (q.acc.q1 && !q.done.q1 && q.kills >= 5) completeQuest("q1");
     setMsg(floorHint());
   };
 }
@@ -961,8 +1272,8 @@ function defeat() {
   info("K.O.", `<p>Tu te réveilles à la Taverne, avec la moitié de tes PV. Le tavernier hoche la tête : « Tout le monde tombe, à la prairie. »</p>`, "Continuer", () => go("ville"));
 }
 function journalSheet() {
-  const q = G.q, all = q.q1 && q.q2 && q.king;
-  sheet(`<h2>Journal</h2>${questLines()}${all && !q.stairs ? `<div class="hint">« Là où l'étang dort, le vieux chêne sonne creux. »</div>` : ""}<button class="btn primary" id="j-ok" data-focus>Fermer</button>`, { dismiss: true });
+  const q = G.q;
+  sheet(`<h2>Journal</h2>${questLines()}${q.king && !q.stairs ? `<div class="hint">« Derrière l'eau qui tombe, la falaise est creuse. »</div>` : ""}<button class="btn primary" id="j-ok" data-focus>Fermer</button>`, { dismiss: true });
   $("#j-ok").onclick = closeSheet;
 }
 
@@ -982,6 +1293,8 @@ document.addEventListener("click", e => {
     case "sell": { const it = itemById(id); if (G.equip[it.slot] !== id) { G.gold += sellPrice(it); G.items = G.items.filter(x => x !== it); } break; }
     case "train": if (G.train < maxTrain() && G.gold >= trainCost()) { G.gold -= trainCost(); G.train++; G.hp = (G.hp ?? maxHp()) + 3; toast("Entraînement : +1 attaque, +3 PV max"); } break;
     case "journal-sheet": journalSheet(); return;
+    case "zoom-in": if (F) F.zoom = Math.max(6, F.zoom - 2); return;
+    case "zoom-out": if (F) F.zoom = Math.min(18, F.zoom + 2); return;
     default: return;
   }
   save(); render();
@@ -1055,7 +1368,7 @@ syncEnergy();
 render();
 setInterval(tick, 500);
 // Accroche de test (jeu.html?debug) : utilisée seulement pour les tests automatisés.
-if (/[?&]debug\b/.test(location.search)) window.__quest = { get G() { return G; }, get F() { return F; }, get C() { return C; }, routeTo: (x, y) => routeTo(x, y), go };
+if (/[?&]debug\b/.test(location.search)) window.__quest = { get G() { return G; }, get F() { return F; }, get C() { return C; }, routeTo: (x, y) => routeTo(x, y), go, bfs, walkable, tileAt, spawnSlimes };
 
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
   try { navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}
