@@ -126,6 +126,29 @@ body.floor main { padding: 0; position: relative; flex: 1; min-height: 0; displa
 #minimap { position: absolute; top: 48px; left: max(12px, env(safe-area-inset-left, 0px)); border: 2px solid rgba(16,26,20,.8); border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; image-rendering: pixelated; }
 .sheet-bg.clear { background: transparent; pointer-events: none; }
 .sheet-bg.clear .sheet { pointer-events: auto; box-shadow: 0 -6px 24px rgba(0,0,0,.25); gap: 8px; }
+.sheet-bg.clear { align-items: end !important; }
+.sheet-bg.clear .sheet { max-width: 640px; padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 10px); gap: 6px; }
+@media (min-width: 600px) { .sheet-bg.clear .sheet { margin-bottom: 12px; } }
+.sheet-bg.clear .cacts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 460px) { .sheet-bg.clear .cacts { grid-template-columns: 1fr 1fr; } }
+.sheet-bg.clear .cacts .btn { padding: 9px 6px; }
+.sheet-bg.clear .clog { min-height: 0; font-size: 13px; }
+.sheet-bg.clear .intent { min-height: 0; }
+.dmg { position: fixed; z-index: 45; pointer-events: none; font-family: var(--font-display); font-weight: 800; font-size: 28px; color: #fff;
+  text-shadow: 0 2px 0 #1c2a22, 0 0 8px rgba(0,0,0,.45); transform: translate(-50%, -50%); animation: dmgUp .9s ease-out forwards; }
+.dmg.hurt { color: #ff6b5e; }
+@keyframes dmgUp { from { opacity: 1; margin-top: 0; } 70% { opacity: 1; } to { opacity: 0; margin-top: -54px; } }
+#joy { position: absolute; left: max(18px, env(safe-area-inset-left, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 74px); width: 124px; height: 124px;
+  border-radius: 50%; background: rgba(16,26,20,.25); border: 2px solid rgba(255,255,255,.5); touch-action: none; }
+#joy i { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: rgba(255,255,255,.88); box-shadow: 0 2px 8px rgba(0,0,0,.3); pointer-events: none; }
+.act-btn { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 74px); box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+.act-btn[hidden], #joy[hidden] { display: none; }
+.modes { display: grid; gap: 8px; }
+.modes label { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 10px; align-items: start; padding: 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.modes label.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.modes input { margin-top: 3px; accent-color: var(--accent); }
+.modes span { display: grid; gap: 2px; }
+.modes small { color: var(--muted); font-size: 13px; }
 .duel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .duel > div { display: grid; gap: 3px; font-size: 14px; }
 .duel .hpbar { width: 100%; }
@@ -252,7 +275,7 @@ function newGame() {
     energy: 3, cyclesSeen: null,
     items: [], equip: { weapon: null, armor: null, charm: null },
     pauseId: null, rested: false, rest: null,
-    pos: null,
+    pos: null, opts: { move: "auto" },
     q: { v: 2, acc: {}, done: {}, kills: 0, flowers: [], jelly: 0, rod: 0, cat: 0, riddle: false, moss: false, king: false, stairs: false, floor2: false },
   };
 }
@@ -592,7 +615,9 @@ async function startFloor() {
   $("#view").innerHTML = `<div id="stage"><div class="floor-loading" id="floor-loading">Chargement de la prairie…</div></div>
     <div class="floor-name">Étage 1 · La prairie</div>
     <canvas id="minimap" title="Mini-carte : touche pour l'agrandir" aria-label="Mini-carte de l'étage"></canvas>
-    <div class="zoom"><button class="btn small" data-act="zoom-in" aria-label="Rapprocher">+</button><button class="btn small" data-act="zoom-out" aria-label="Éloigner">−</button><button class="btn small" data-act="cam-reset" aria-label="Recentrer la caméra">⟲</button></div>
+    <div class="zoom"><button class="btn small" data-act="zoom-in" aria-label="Rapprocher">+</button><button class="btn small" data-act="zoom-out" aria-label="Éloigner">−</button><button class="btn small" data-act="cam-reset" aria-label="Recentrer la caméra">⟲</button><button class="btn small" data-act="settings" aria-label="Réglages des déplacements">⚙</button></div>
+    <div id="joy" hidden aria-label="Joystick de déplacement"><i></i></div>
+    <button class="btn primary act-btn" id="act-btn" hidden></button>
     <div class="floor-bar"><button class="btn" data-go="ville">Ville</button><div class="floor-msg" id="floor-msg"></div><button class="btn" data-act="journal-sheet">Journal</button></div>`;
   const token = {}; F = { token, loading: true };
   try { THREE = THREE || await import(THREE_URL); }
@@ -602,6 +627,7 @@ async function startFloor() {
   Object.assign(F, { loading: false, hero: { x: pos.x, y: pos.y, rx: pos.x, ry: pos.y, rot: Math.PI, path: [], moving: false }, trail: [], slimes: [], pending: null, last: performance.now(), zoom: 12, yaw: 0, pitch: 1.0, anim: [] });
   buildScene();
   spawnSlimes();
+  bindJoy($("#joy")); applyMoveMode();
   setMsg(floorHint());
   F.raf = requestAnimationFrame(loop);
 }
@@ -614,7 +640,7 @@ function stopFloor() {
 function setMsg(m) { const el = $("#floor-msg"); if (el) el.textContent = m; }
 function floorHint() {
   const q = G.q;
-  if (!Object.keys(q.acc).length) return "Touche le sol pour te déplacer. Les « ! » dorés du hameau ont besoin d'aide.";
+  if (!Object.keys(q.acc).length) return (coarse() ? "Joystick ou toucher le sol pour marcher" : "ZQSD, flèches ou clic pour marcher, E pour parler") + " (⚙ pour choisir). Les « ! » dorés du hameau ont besoin d'aide.";
   if (q.cat === 2) return "Pistache te suit. Ramène-le à Lila, au hameau.";
   const cur = QUESTS.find(x => q.acc[x.id] && !q.done[x.id]);
   if (cur) return cur.ok(q) && cur.turnIn ? `Retourne voir ${NPCS[cur.giver].name.split(",")[0]}.` : cur.prog(q);
@@ -666,7 +692,7 @@ function groundColor(x, z, out) {
 function buildScene() {
   rs = 99;
   const stage = $("#stage");
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
   renderer.setPixelRatio(DPR);
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -755,7 +781,10 @@ function buildScene() {
   // personnages et objets
   F.heroMesh = makeHero(rankIdx()); scene.add(F.heroMesh);
   F.ghost = new THREE.Scene();
-  F.ghost.overrideMaterial = new THREE.MeshBasicMaterial({ color: "#eaf6ff", transparent: true, opacity: 0.4, depthFunc: THREE.GreaterDepth, depthWrite: false });
+  // silhouette : seulement là où le héros est caché par le décor (le pochoir écarte les parties déjà visibles)
+  F.ghost.overrideMaterial = new THREE.MeshBasicMaterial({ color: "#eaf6ff", transparent: true, opacity: 0.4, depthFunc: THREE.GreaterDepth, depthWrite: false,
+    stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.ReplaceStencilOp });
+  F.heroMesh.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); Object.assign(o.material, { stencilWrite: true, stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp }); } });
   F.npcs = {};
   F.npcs.maelle = makePerson({ body: "#8e5bb5", skin: "#f1c7a0", hair: "#c4702e", hat: "#e2c26a", dress: true, staff: true });
   F.npcs.bran = makePerson({ body: "#6b4a2b", skin: "#e0a77f", hair: "#3b2a1e", apron: "#3a3a3a", beard: true, bald: true, wide: 1.15, hammer: true });
@@ -1004,36 +1033,140 @@ function loop(now) {
   if (!F || F.loading) return;
   const dt = Math.min(64, now - F.last); F.last = now;
   if (!sheetOpen()) update(dt, now);
+  else { const b = $("#act-btn"); if (b && !b.hidden) { b.hidden = true; F.nearT = 0; } }
   draw(now, dt);
   F.raf = requestAnimationFrame(loop);
 }
 function update(dt, now) {
   const h = F.hero, speed = (hasSkill(5) ? 4.6 : 3.4) / 1000;
-  if (!h.moving && h.path.length) {
-    const n = h.path[0];
-    const sl = F.slimes.find(s => s.x === n.x && s.y === n.y);
-    if (sl) { h.path = []; meet(sl); return; }
-    h.path.shift();
-    F.trail.unshift({ x: h.x, y: h.y }); F.trail.length = Math.min(F.trail.length, 4);
-    h.x = n.x; h.y = n.y; h.moving = true;
+  let ix = (KEYS.r ? 1 : 0) - (KEYS.l ? 1 : 0), iy = (KEYS.d ? 1 : 0) - (KEYS.u ? 1 : 0);
+  if (F.joy) { ix += F.joy.x; iy += F.joy.y; }
+  let vx = 0, vy = 0, follow = false;
+  if (ix || iy) {
+    // direction relative à la caméra : haut = s'éloigner de la caméra
+    h.path = []; F.pending = null;
+    const sn = Math.sin(F.yaw), cs = Math.cos(F.yaw);
+    vx = cs * ix + sn * iy; vy = -sn * ix + cs * iy;
+  } else if (F.hold) {
+    const p = groundPoint(F.hold.x, F.hold.y);
+    if (p) { const dx = p.x - h.rx, dy = p.z - h.ry, d = Math.hypot(dx, dy); if (d > 0.2) { vx = dx / d; vy = dy / d; } }
+  } else if (h.path.length) {
+    const n = h.path[0], dx = n.x - h.rx, dy = n.y - h.ry, d = Math.hypot(dx, dy);
+    if (d <= speed * dt + 0.01) { if (freeAt(n.x, n.y)) { h.rx = n.x; h.ry = n.y; } h.path.shift(); F.stuck = 0; if (!h.path.length) { tileCheck(); if (!F || sheetOpen()) return; reached(); return; } }
+    else { vx = dx / d; vy = dy / d; follow = true; }
   }
-  if (h.moving) {
-    const dx = h.x - h.rx, dy = h.y - h.ry, d = Math.hypot(dx, dy), st = speed * dt;
-    h.rot = Math.atan2(dx, dy);
-    if (d <= st) { h.rx = h.x; h.ry = h.y; h.moving = false; arrive(); }
-    else { h.rx += dx / d * st; h.ry += dy / d * st; }
+  h.moving = false;
+  const mag = Math.min(1, Math.hypot(vx, vy));
+  if (mag > 0.05) {
+    const ux = vx / Math.hypot(vx, vy), uy = vy / Math.hypot(vx, vy), want = speed * dt * mag;
+    const ox = h.rx, oy = h.ry;
+    stepHero(ux, uy, want);
+    const got = Math.hypot(h.rx - ox, h.ry - oy);
+    h.rot = Math.atan2(ux, uy); h.moving = got > want * 0.15; h.pace = mag;
+    if (follow && got < want * 0.15) { F.stuck = (F.stuck || 0) + dt; if (F.stuck > 450) { h.path = []; F.stuck = 0; if (F.pending && Math.hypot(F.pendAt.x - h.rx, F.pendAt.y - h.ry) < 1.6) reached(); else F.pending = null; } }
   }
+  tileCheck(); if (!F || sheetOpen()) return;
+  // les slimes sautillent de case en case
   for (const s of F.slimes) {
-    if (now < s.next) continue;
+    if (now < s.next || s.hold) continue;
     s.next = now + rnd(800, 1900);
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].sort(() => Math.random() - .5);
     for (const [ax, ay] of dirs) {
       const nx = s.x + ax, ny = s.y + ay;
       if (ny < 13 || ny > 33 || !walkable(nx, ny) || F.slimes.some(o => o.x === nx && o.y === ny)) continue;
-      if (nx === h.x && ny === h.y) { if (now > s.cool && !h.moving) { meet(s); return; } continue; }
+      if (Math.hypot(nx - h.rx, ny - h.ry) < 0.9) { if (now > s.cool) { s.x = nx; s.y = ny; } break; }
       s.x = nx; s.y = ny; break;
     }
   }
+  // contact avec un slime : combat
+  for (const s of F.slimes) if (now > s.cool && Math.hypot(s.rx - h.rx, s.ry - h.ry) < (s.big ? 1.1 : 0.75)) { h.path = []; F.pending = null; meet(s); return; }
+  // ce qu'on peut faire ici (parler, examiner)
+  if (now - (F.nearT || 0) > 150) {
+    F.nearT = now; F.near = nearTarget();
+    const b = $("#act-btn");
+    if (b) { b.hidden = !F.near; const t = F.near ? actLabel(F.near) + (coarse() ? "" : " (E)") : ""; if (b.textContent !== t) b.textContent = t; }
+  }
+}
+/* ---- Déplacement libre ---- */
+const HERO_R = 0.27;
+const KEYS = {};
+const KEYMAP = { ArrowUp: "u", z: "u", w: "u", ArrowDown: "d", s: "d", ArrowLeft: "l", q: "l", a: "l", ArrowRight: "r", d: "r" };
+const MOVE_MODES = [
+  ["auto", "Automatique", "Tout marche : clavier, clic ou toucher pour aller à un endroit, et joystick sur téléphone."],
+  ["clavier", "Clavier", "ZQSD, WASD ou flèches pour marcher, E pour parler. La souris sert seulement à tourner la caméra."],
+  ["souris", "Souris", "Maintiens le clic gauche : le héros suit le curseur. Un clic simple l'envoie à cet endroit. Clic droit glissé pour tourner la caméra."],
+  ["tactile", "Téléphone", "Joystick en bas à gauche pour marcher. Glisse ailleurs pour tourner la caméra, touche le sol pour y aller."],
+];
+const moveMode = () => (G.opts && G.opts.move) || "auto";
+const coarse = () => !!(window.matchMedia && matchMedia("(pointer: coarse)").matches);
+function applyMoveMode() { const j = $("#joy"); if (j) j.hidden = !(moveMode() === "tactile" || (moveMode() === "auto" && coarse())); }
+function clearInput() { for (const k in KEYS) delete KEYS[k]; if (F) { F.joy = null; F.hold = null; } const k = $("#joy i"); if (k) k.style.transform = ""; }
+function freeAt(px, py) {
+  for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) if (!walkable(Math.round(px + a * HERO_R), Math.round(py + b * HERO_R))) return false;
+  return true;
+}
+function stepHero(ux, uy, dist) {
+  const h = F.hero, nx = h.rx + ux * dist, ny = h.ry + uy * dist;
+  if (freeAt(nx, ny)) { h.rx = nx; h.ry = ny; }
+  else if (Math.abs(ux) > 0.05 && freeAt(nx, h.ry)) h.rx = nx;   // on glisse le long des murs
+  else if (Math.abs(uy) > 0.05 && freeAt(h.rx, ny)) h.ry = ny;
+}
+function clearLine(a, b) {
+  const n = Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 0.2);
+  for (let i = 1; i <= n; i++) { const t = i / n; if (!freeAt(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) return false; }
+  return true;
+}
+function smoothPath(pts) {
+  const h = F.hero, out = []; let cur = { x: h.rx, y: h.ry }, i = 0;
+  while (i < pts.length) { let j = pts.length - 1; while (j > i && !clearLine(cur, pts[j])) j--; out.push(pts[j]); cur = pts[j]; i = j + 1; }
+  return out;
+}
+function tileCheck() {
+  const h = F.hero, tx = Math.round(h.rx), ty = Math.round(h.ry);
+  if (tx === h.x && ty === h.y) return;
+  F.trail.unshift({ x: h.x, y: h.y }); F.trail.length = Math.min(F.trail.length, 4);
+  h.x = tx; h.y = ty; arrive();
+}
+function reached() { if (F && F.pending) { const p = F.pending; F.pending = null; clearInput(); interact(p); } }
+const NEAR_WHAT = { R: "pierre", W: "cascade", h: "haie", b: "pont", H: "maison", w: "puits" };
+function nearTarget() {
+  const h = F.hero; let best = null, bd = 1.35;
+  for (let j = h.y - 2; j <= h.y + 2; j++) for (let i = h.x - 2; i <= h.x + 2; i++) {
+    const what = npcAt(i, j) || NEAR_WHAT[tileAt(i, j)];
+    if (!what) continue;
+    const d = Math.hypot(i - h.rx, j - h.ry);
+    if (d < bd) { bd = d; best = what; }
+  }
+  return best;
+}
+function actLabel(w) {
+  if (NPCS[w]) return "Parler à " + NPCS[w].name.split(",")[0];
+  return { pierre: "Lire la pierre", cascade: "Examiner la cascade", haie: "Examiner la haie", pont: "Examiner le pont", maison: "Frapper à la porte", puits: "Regarder le puits" }[w] || "Examiner";
+}
+function doInteract() { if (!F || !F.near || sheetOpen() || C) return; clearInput(); F.hero.path = []; interact(F.near); }
+function bindJoy(el) {
+  if (!el) return;
+  const knob = el.querySelector("i"), R = 48; let id = null, cx = 0, cy = 0;
+  const mv = e => {
+    if (e.pointerId !== id || !F) return;
+    let dx = e.clientX - cx, dy = e.clientY - cy; const d = Math.hypot(dx, dy);
+    if (d > R) { dx *= R / d; dy *= R / d; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    F.joy = Math.hypot(dx, dy) / R < 0.15 ? null : { x: dx / R, y: dy / R };
+  };
+  el.addEventListener("pointerdown", e => { e.preventDefault(); id = e.pointerId; el.setPointerCapture?.(id); const r = el.getBoundingClientRect(); cx = r.left + r.width / 2; cy = r.top + r.height / 2; mv(e); });
+  el.addEventListener("pointermove", mv);
+  const up = e => { if (e.pointerId !== id) return; id = null; knob.style.transform = ""; if (F) F.joy = null; };
+  el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+}
+function settingsSheet() {
+  const m = moveMode();
+  sheet(`<h2>Réglages</h2><p class="label">Façon de se déplacer</p>
+    <div class="modes">${MOVE_MODES.map(([k, t, d]) => `<label class="${k === m ? "on" : ""}"><input type="radio" name="move" value="${k}" ${k === m ? "checked" : ""}><span><b>${t}</b><small>${d}</small></span></label>`).join("")}</div>
+    <p class="muted" style="font-size:13px">Dans tous les modes : glisser (ou clic droit) pour tourner et incliner la vue, molette ou pincer pour zoomer.</p>
+    <button class="btn primary" id="set-ok" data-focus>Fermer</button>`, { dismiss: true });
+  document.querySelectorAll('input[name="move"]').forEach(r => r.onchange = () => { G.opts = { ...(G.opts || {}), move: r.value }; save(); applyMoveMode(); settingsSheet(); });
+  $("#set-ok").onclick = closeSheet;
 }
 function arrive() {
   const h = F.hero, q = G.q;
@@ -1048,9 +1181,8 @@ function arrive() {
   if (h.x === ROD.x && h.y === ROD.y && !q.rod) { q.rod = 1; toast("Tu trouves une canne à pêche !"); if (!q.acc.q4) toast("Quelqu'un au bord du lac la cherche peut-être."); }
   if (h.x === CAT.x && h.y === CAT.y && q.cat === 1) { q.cat = 2; toast("Miaou ! Pistache te suit."); }
   setMsg(floorHint());
-  if (tileAt(h.x, h.y) === "E") { h.path = []; climb(); }
-  else if (h.x === PORTAL.x && h.y === PORTAL.y) { h.path = []; save(); go("ville"); return; }
-  if (!h.path.length && F.pending) { const p = F.pending; F.pending = null; interact(p); }
+  if (tileAt(h.x, h.y) === "E") { h.path = []; F.pending = null; clearInput(); climb(); }
+  else if (h.x === PORTAL.x && h.y === PORTAL.y) { h.path = []; G.pos = null; save(); clearInput(); go("ville"); return; }
   save();
 }
 const dewVisible = d => !G.q.flowers.includes(d.id) && (hasSkill(1) || Math.abs(d.x - F.hero.x) + Math.abs(d.y - F.hero.y) <= 4);
@@ -1062,15 +1194,17 @@ function draw(now, dt) {
   const { renderer, scene, camera, sun } = F, h = F.hero, q = G.q;
   // héros
   const hm = F.heroMesh, u = hm.userData;
-  hm.position.set(h.rx, heightAt(h.rx, h.ry), h.ry);
+  const lg = F.lunge || 0;
+  hm.position.set(h.rx + Math.sin(hm.rotation.y) * lg, heightAt(h.rx, h.ry), h.ry + Math.cos(hm.rotation.y) * lg);
   let dr = h.rot - hm.rotation.y; while (dr > Math.PI) dr -= Math.PI * 2; while (dr < -Math.PI) dr += Math.PI * 2;
   hm.rotation.y += dr * Math.min(1, dt / 90);
-  const sw = h.moving ? Math.sin(now / 90) * 0.6 : 0;
+  const sw = h.moving ? Math.sin(now / 90) * 0.6 * Math.max(0.4, h.pace || 1) : 0;
   u.legL.rotation.x = sw; u.legR.rotation.x = -sw; u.armL.rotation.x = -sw * 0.7; u.armR.rotation.x = sw * 0.7;
   u.body.position.y = h.moving ? Math.abs(Math.sin(now / 90)) * 0.05 : Math.sin(now / 600) * 0.01;
   // slimes
   for (const s of F.slimes) {
-    s.rx += (s.x - s.rx) * Math.min(1, dt / 160); s.ry += (s.y - s.ry) * Math.min(1, dt / 160);
+    const gx = s.hold ? s.hold.x : s.x, gy = s.hold ? s.hold.y : s.y;
+    s.rx += (gx - s.rx) * Math.min(1, dt / 160); s.ry += (gy - s.ry) * Math.min(1, dt / 160);
     const b = Math.abs(Math.sin(now / 260 + s.ph));
     s.mesh.position.set(s.rx, heightAt(s.rx, s.ry) + b * (s.big ? 0.08 : 0.18), s.ry);
     s.mesh.userData.body.scale.set(1 + (1 - b) * 0.12, 0.88 + b * 0.18, 1 + (1 - b) * 0.12);
@@ -1098,15 +1232,33 @@ function draw(now, dt) {
   F.rune.material.opacity = q.riddle ? 0.15 : 0.6 + Math.sin(now / 400) * 0.3;
   F.fallTex.offset.y = -now / 900;
   F.fallSheet.material.opacity = q.stairs ? 0.45 : 0.9; F.cave.visible = q.stairs;
+  if (F.tapMark) { const k = 1 - (now - F.tapT) / 700; F.tapMark.visible = k > 0; F.tapMark.material.opacity = Math.max(0, k); F.tapMark.scale.setScalar(1 + (1 - Math.max(0, k)) * 0.6); }
   F.portalGlow.material.opacity = 0.55 + Math.sin(now / 500) * 0.2;
   if (F.water.material) F.water.material.color.setHSL(0.56, 0.62, 0.58 + Math.sin(now / 1500) * 0.03);
   // caméra et soleil
-  const d = C ? Math.min(F.zoom, 7) : F.zoom;
-  const goal = new THREE.Vector3(h.rx, heightAt(h.rx, h.ry) + 0.5, h.ry);
+  let wy = F.yaw, wp = F.pitch, wd = F.zoom, goal;
+  if (C && C.sl) {
+    // combat : vue de trois quarts derrière le héros, les deux combattants au centre
+    const s = C.sl, mx = (h.rx + s.rx) / 2, mz = (h.ry + s.ry) / 2, ang = Math.atan2(s.rx - h.rx, s.ry - h.ry);
+    const a1 = ang + Math.PI - 1.05, a2 = ang + Math.PI + 1.05;
+    wy = Math.abs(wrapA(a1 - (F.cy ?? F.yaw))) < Math.abs(wrapA(a2 - (F.cy ?? F.yaw))) ? a1 : a2;
+    wp = 0.5; wd = s.big ? 6.6 : 5.2;
+    goal = new THREE.Vector3(mx, heightAt(mx, mz) + 0.45, mz);
+  } else goal = new THREE.Vector3(h.rx, heightAt(h.rx, h.ry) + 0.5, h.ry);
+  if (!!C !== !!F.wasC) { F.wasC = !!C; F.blend = now + 900; if (!C) F.yaw = F.cy; }
+  if (F.cy == null) { F.cy = wy; F.cp = wp; F.cd = wd; }
+  const kb = C || now < (F.blend || 0) ? Math.min(1, dt / 200) : 1;
+  F.cy += wrapA(wy - F.cy) * kb; F.cp += (wp - F.cp) * kb; F.cd += (wd - F.cd) * kb;
   if (!F.camT) F.camT = goal.clone(); else F.camT.lerp(goal, Math.min(1, dt / 160));
-  const cp = Math.cos(F.pitch);
-  camera.position.set(F.camT.x + Math.sin(F.yaw) * cp * d, F.camT.y + Math.sin(F.pitch) * d, F.camT.z + Math.cos(F.yaw) * cp * d);
+  const cp = Math.cos(F.cp), d = F.cd;
+  camera.position.set(F.camT.x + Math.sin(F.cy) * cp * d, F.camT.y + Math.sin(F.cp) * d, F.camT.z + Math.cos(F.cy) * cp * d);
   camera.lookAt(F.camT);
+  // pendant le combat, on décale l'image vers le haut pour laisser la place au panneau
+  const cv = renderer.domElement, W = cv.clientWidth, H = cv.clientHeight;
+  const panel = C ? document.querySelector(".sheet-bg.clear .sheet") : null;
+  const off = panel ? Math.min(H * 0.32, panel.offsetHeight * 0.55) : 0;
+  F.voff = (F.voff || 0) + (off - (F.voff || 0)) * Math.min(1, dt / 150);
+  if (F.voff > 0.5 && W && H) camera.setViewOffset(W, H, 0, F.voff, W, H); else if (camera.view && camera.view.enabled) camera.clearViewOffset();
   sun.position.set(F.camT.x + 8, 16, F.camT.z + 6); sun.target.position.set(F.camT.x, 0, F.camT.z);
   // maisons transparentes quand elles cachent le héros
   const toHero = new THREE.Vector3(h.rx, heightAt(h.rx, h.ry) + 0.7, h.ry).sub(camera.position);
@@ -1115,27 +1267,41 @@ function draw(now, dt) {
   F.houses.forEach(g => { const op = hidden.has(g) ? 0.25 : 1; g.traverse(o => { if (o.isMesh) { o.material.opacity += (op - o.material.opacity) * 0.25; o.castShadow = op === 1; } }); });
   renderer.render(scene, camera);
   // silhouette du héros, visible à travers les arbres
-  F.ghost.add(F.heroMesh); renderer.autoClear = false; renderer.render(F.ghost, camera); renderer.autoClear = true; scene.add(F.heroMesh);
+  if (!C) { F.ghost.add(F.heroMesh); renderer.autoClear = false; renderer.render(F.ghost, camera); renderer.autoClear = true; scene.add(F.heroMesh); }
   if (now - (F.mmT || 0) > 120) { F.mmT = now; drawMinimap(now); }
 }
-function tapAt(cx, cy) {
-  if (sheetOpen() || !F || !F.camera) return;
+const wrapA = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+function groundPoint(cx, cy) {
+  if (!F || !F.camera) return null;
   const r = F.renderer.domElement.getBoundingClientRect();
   const v = new THREE.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
   F.ray.setFromCamera(v, F.camera);
   const hits = F.ray.intersectObject(F.ground, false);
-  const hit = hits.length ? hits[0].point : F.ray.ray.intersectPlane(F.plane, new THREE.Vector3());
-  if (hit) routeTo(Math.round(hit.x), Math.round(hit.z));
+  return hits.length ? hits[0].point : F.ray.ray.intersectPlane(F.plane, new THREE.Vector3());
+}
+function tapAt(cx, cy) {
+  if (sheetOpen() || !F || !F.camera || moveMode() === "clavier") return;
+  const hit = groundPoint(cx, cy);
+  if (!hit) return;
+  if (!F.tapMark) {
+    F.tapMark = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.26, 28), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }));
+    F.tapMark.rotation.x = -Math.PI / 2; F.scene.add(F.tapMark);
+  }
+  F.tapMark.position.set(hit.x, heightAt(hit.x, hit.z) + 0.04, hit.z); F.tapT = performance.now();
+  routeTo(Math.round(hit.x), Math.round(hit.z), { x: hit.x, y: hit.z });
 }
 function bindCamera(el) {
   const pts = new Map(); let drag = null, pinch = null;
+  el.addEventListener("contextmenu", e => e.preventDefault());
   el.addEventListener("pointerdown", e => {
     el.setPointerCapture?.(e.pointerId);
+    if (e.pointerType === "mouse" && e.button === 0 && moveMode() === "souris" && F && !sheetOpen()) { F.hold = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId }; F.hero.path = []; F.pending = null; return; }
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pts.size === 1) drag = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
     if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), z: F.zoom }; drag = null; }
   });
   el.addEventListener("pointermove", e => {
+    if (F && F.hold && F.hold.id === e.pointerId) { F.hold.x = e.clientX; F.hold.y = e.clientY; return; }
     if (!pts.has(e.pointerId) || !F) return;
     const prev = pts.get(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; const dd = Math.hypot(a.x - b.x, a.y - b.y); F.zoom = Math.max(5, Math.min(22, pinch.z * pinch.d / Math.max(20, dd))); return; }
@@ -1144,6 +1310,7 @@ function bindCamera(el) {
     if (drag.moved) { F.yaw -= (e.clientX - prev.x) * 0.008; F.pitch = Math.max(0.28, Math.min(1.45, F.pitch + (e.clientY - prev.y) * 0.006)); }
   });
   const up = e => {
+    if (F && F.hold && F.hold.id === e.pointerId) { const quick = performance.now() - F.hold.t < 250; F.hold = null; if (quick && e.type === "pointerup") tapAt(e.clientX, e.clientY); return; }
     if (!pts.has(e.pointerId)) return;
     pts.delete(e.pointerId);
     if (drag && !drag.moved && performance.now() - drag.t < 500 && e.type === "pointerup") tapAt(e.clientX, e.clientY);
@@ -1203,7 +1370,7 @@ function drawMinimap(now) {
   x.beginPath(); x.moveTo(0, -S * 1.5); x.lineTo(S * 1.1, S * 1.1); x.lineTo(-S * 1.1, S * 1.1); x.closePath(); x.fill(); x.stroke();
   x.restore();
 }
-function routeTo(tx, ty) {
+function routeTo(tx, ty, exact) {
   const h = F.hero;
   const big = F.slimes.find(s => s.big && Math.abs(s.x - tx) <= 1 && Math.abs(s.y - ty) <= 1);
   let what = npcAt(tx, ty);
@@ -1215,10 +1382,12 @@ function routeTo(tx, ty) {
   else if (walkable(tx, ty)) goals = [{ x: tx, y: ty }];
   else return;
   if (what === "maison") { const hs = HOUSES.find(o => tx >= o.x0 && tx <= o.x1 && ty >= o.y0 && ty <= o.y1); goals = []; for (let x = hs.x0 - 1; x <= hs.x1 + 1; x++) for (let y = hs.y0 - 1; y <= hs.y1 + 1; y++) if (walkable(x, y)) goals.push({ x, y }); }
-  if (what && goals.some(g => g.x === h.x && g.y === h.y)) { h.path = []; interact(what); return; }
+  if (what && !big && Math.hypot(tx - h.rx, ty - h.ry) < 1.45) { h.path = []; interact(what); return; }
   const path = bfs({ x: h.x, y: h.y }, goals);
   if (!path) { toast("Impossible d'y aller d'ici"); return; }
-  h.path = path; F.pending = what;
+  if (!what && !big && exact && Math.round(exact.x) === tx && Math.round(exact.y) === ty && freeAt(exact.x, exact.y)) { if (path.length) path[path.length - 1] = exact; else path.push(exact); }
+  h.path = smoothPath(path); F.pending = what; F.pendAt = { x: tx, y: ty }; F.stuck = 0;
+  if (!h.path.length) reached();
 }
 function bfs(s, goals) {
   const key = (x, y) => y * MW + x, prev = new Map([[key(s.x, s.y), null]]), q = [s];
@@ -1235,16 +1404,15 @@ function bfs(s, goals) {
   }
   return null;
 }
+const keyOf = e => KEYMAP[e.key.length === 1 ? e.key.toLowerCase() : e.key];
 document.addEventListener("keydown", e => {
-  if (!F || !F.hero || sheetOpen()) return;
-  const d = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], z: [0, -1], s: [0, 1], q: [-1, 0], d: [1, 0], w: [0, -1], a: [-1, 0] }[e.key];
-  if (!d) return;
-  e.preventDefault();
-  const h = F.hero; if (h.moving || h.path.length) return;
-  const k = ((Math.round(F.yaw / (Math.PI / 2)) % 4) + 4) % 4; let [dx, dy] = d;
-  for (let i = 0; i < k; i++) [dx, dy] = [dy, -dx];
-  routeTo(h.x + dx, h.y + dy);
+  if (!F || !F.hero || sheetOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = keyOf(e);
+  if (k) { e.preventDefault(); KEYS[k] = true; return; }
+  if (e.key === "e" || e.key === "E" || (e.key === " " && !e.target.closest("button"))) { e.preventDefault(); doInteract(); }
 });
+document.addEventListener("keyup", e => { const k = keyOf(e); if (k) delete KEYS[k]; });
+window.addEventListener("blur", clearInput);
 
 /* ---- Dialogues et quêtes ---- */
 const INTROS = {
@@ -1338,12 +1506,14 @@ function meet(sl) {
     sl.cool = performance.now() + 2500;
     toast(`Plus assez d'énergie (${f.cost} requise)`);
     setMsg("Le slime te repousse. Termine un cycle de focus pour regagner de l'énergie, ou explore.");
-    F.hero.path = [];
+    F.hero.path = []; clearInput(); pushBack(sl);
     return;
   }
   G.energy -= f.cost; save(); renderHUD();
   if (G.hp == null) G.hp = maxHp();
-  F.hero.rot = Math.atan2(sl.x - F.hero.x, sl.y - F.hero.y);
+  clearInput();
+  { const h = F.hero; let dx = sl.rx - h.rx, dy = sl.ry - h.ry; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    const gap = sl.big ? 1.6 : 1.15; sl.hold = { x: h.rx + dx * gap, y: h.ry + dy * gap }; h.rot = Math.atan2(dx, dy); }
   C = { sl, f, hp: f.hp, max: f.hp, turn: 0, streak: 0, used: {}, guard: false, log: [`${f.name} surgit !`], busy: false };
   C.intent = nextIntent();
   renderCombat();
@@ -1380,8 +1550,31 @@ function flash(mesh, color) {
 function lunge(mesh, from, to, after) {
   F.anim.push({ t0: performance.now(), dur: 320, step: k => { mesh.position.x = from.x + (to.x - from.x) * 0.45 * k; mesh.position.z = from.y + (to.y - from.y) * 0.45 * k; }, end: after });
 }
-function heroAttackFx() { if (!F || !C) return; const s = C.sl; F.anim.push({ t0: performance.now(), dur: 320, step: k => { const b = F.heroMesh.userData.body; b.position.z = 0.35 * k; F.heroMesh.userData.armR.rotation.x = -1.6 * k; } }); setTimeout(() => F && flash(s.mesh, "#ffffff"), 160); }
-function foeAttackFx() { if (!F || !C) return; const s = C.sl; F.anim.push({ t0: performance.now(), dur: 360, step: k => { s.mesh.position.x = s.rx + (F.hero.rx - s.rx) * 0.4 * k; s.mesh.position.z = s.ry + (F.hero.ry - s.ry) * 0.4 * k; s.mesh.position.y = 0.5 * k; } }); setTimeout(() => F && flash(F.heroMesh, "#ff3b2f"), 180); }
+function pushBack(sl) {
+  const h = F.hero; let dx = h.rx - sl.rx, dy = h.ry - sl.ry; const d = Math.hypot(dx, dy) || 1;
+  for (let i = 0; i < 6; i++) stepHero(dx / d, dy / d, 0.15);
+}
+function popDmg(obj, n, hurt) {
+  if (!F || !n || !F.camera) return;
+  const v = new THREE.Vector3(); obj.getWorldPosition(v); v.y += 1.1; v.project(F.camera);
+  const r = F.renderer.domElement.getBoundingClientRect(), el = document.createElement("div");
+  el.className = "dmg" + (hurt ? " hurt" : ""); el.textContent = "−" + n;
+  el.style.left = (r.left + (v.x + 1) / 2 * r.width) + "px"; el.style.top = (r.top + (1 - v.y) / 2 * r.height) + "px";
+  document.body.appendChild(el); setTimeout(() => el.remove(), 950);
+}
+function heroAttackFx(dmg) {
+  if (!F || !C) return; const s = C.sl, u = F.heroMesh.userData;
+  F.anim.push({ t0: performance.now(), dur: 440, step: k => { F.lunge = 0.55 * k; u.armR.rotation.x = -2.5 * k; u.body.rotation.x = 0.25 * k; }, end: () => { F.lunge = 0; u.body.rotation.x = 0; } });
+  setTimeout(() => {
+    if (!F || !s.mesh) return; flash(s.mesh, "#ffffff"); popDmg(s.mesh, dmg, false);
+    const b = s.mesh.userData.body; F.anim.push({ t0: performance.now(), dur: 260, step: k => b.scale.set(1 + 0.25 * k, 1 - 0.3 * k, 1 + 0.25 * k) });
+  }, 210);
+}
+function foeAttackFx(taken) {
+  if (!F || !C) return; const s = C.sl;
+  F.anim.push({ t0: performance.now(), dur: 380, step: k => { s.mesh.position.x = s.rx + (F.hero.rx - s.rx) * 0.45 * k; s.mesh.position.z = s.ry + (F.hero.ry - s.ry) * 0.45 * k; s.mesh.position.y += 0.6 * k; } });
+  setTimeout(() => { if (!F) return; flash(F.heroMesh, "#ff3b2f"); popDmg(F.heroMesh, taken, true); }, 190);
+}
 function combatAct(a) {
   if (C.busy) return;
   let dmg = 0;
@@ -1396,13 +1589,13 @@ function combatAct(a) {
     G.potions--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + POTION_HEAL); C.streak = 0; C.log.push(`Infusion : +${G.hp - before} PV.`);
   } else if (a === "fuir") {
     if (C.f.cost > 1 && !hasSkill(5) ? Math.random() < 0.4 : (hasSkill(5) || Math.random() < 0.6)) {
-      C.sl.cool = performance.now() + 3000; F.hero.path = [];
+      C.sl.cool = performance.now() + 3000; F.hero.path = []; C.sl.hold = null; pushBack(C.sl);
       C = null; save(); closeSheet(); toast("Fuite réussie"); return;
     }
     C.streak = 0; C.log.push("Le slime te bloque le passage !");
   }
   C.hp = Math.max(0, C.hp - dmg);
-  C.busy = true; renderCombat(); if (dmg) heroAttackFx();
+  C.busy = true; renderCombat(); if (dmg) heroAttackFx(dmg);
   if (C.hp <= 0) { setTimeout(victory, 500); return; }
   setTimeout(() => {
     if (!C) return;
@@ -1412,7 +1605,7 @@ function combatAct(a) {
     C.guard = false;
     G.hp = Math.max(0, G.hp - taken);
     C.log.push(taken ? `${esc(C.f.name)} : ${it.name}, <b>${taken}</b> dégâts.` : `${it.name} bloqué par ta garde !`);
-    foeAttackFx();
+    foeAttackFx(taken);
     C.intent = nextIntent(); C.busy = false;
     save(); renderCombat(); renderHUD();
     if (G.hp <= 0) setTimeout(defeat, 500);
@@ -1473,6 +1666,8 @@ document.addEventListener("click", e => {
     case "zoom-in": if (F) F.zoom = Math.max(5, F.zoom - 2); return;
     case "zoom-out": if (F) F.zoom = Math.min(22, F.zoom + 2); return;
     case "cam-reset": if (F) { F.yaw = 0; F.pitch = 1.0; F.zoom = 12; } return;
+    case "settings": settingsSheet(); return;
+    case "interact": doInteract(); return;
     default: return;
   }
   save(); render();
