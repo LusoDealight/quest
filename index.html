@@ -1,0 +1,830 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
+<title>Quest</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#2f6b45">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Pixelify+Sans:wght@500;700&display=swap">
+<style>
+/* Layout : colonne gauche = la tour (progression), colonne droite = onglets de travail ; mobile : tour en bandeau + navigation en bas. */
+:root {
+  --bg: #eef2ec;
+  --surface: #ffffff;
+  --surface-2: #e3eae1;
+  --line: #cdd8cb;
+  --fg: #1c2a22;
+  --muted: #5b6d61;
+  --accent: #2f7d4a;      /* mousse de prairie */
+  --accent-ink: #ffffff;
+  --gold: #b9830d;        /* XP */
+  --gold-soft: #f6e3b0;
+  --sky: #3d7fa6;         /* pause */
+  --sky-soft: #d6e8f2;
+  --danger: #b3412e;
+  --stone-off: #d5ddd2;
+  --font-display: "Pixelify Sans", "Courier New", ui-monospace, monospace;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111915; --surface: #18221d; --surface-2: #202d26; --line: #2c3b33;
+    --fg: #e3ece5; --muted: #93a699; --accent: #64c07f; --accent-ink: #0d1a12;
+    --gold: #f0c04a; --gold-soft: #3b3218; --sky: #7cbde0; --sky-soft: #1b3240;
+    --danger: #ec7b66; --stone-off: #26332c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111915; --surface: #18221d; --surface-2: #202d26; --line: #2c3b33;
+  --fg: #e3ece5; --muted: #93a699; --accent: #64c07f; --accent-ink: #0d1a12;
+  --gold: #f0c04a; --gold-soft: #3b3218; --sky: #7cbde0; --sky-soft: #1b3240;
+  --danger: #ec7b66; --stone-off: #26332c; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.app {
+  max-width: 1120px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 96px;
+  display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; align-items: start;
+}
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+.display { font-family: var(--font-display); letter-spacing: .02em; }
+.muted { color: var(--muted); }
+.label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---- Colonne héros ---- */
+.hero { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); display: grid; gap: 16px; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; }
+.brand h1 { font-family: var(--font-display); font-size: 30px; color: var(--accent); }
+.rank-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; }
+.rank-name { font-family: var(--font-display); font-size: 24px; line-height: 1.1; }
+.xpbar { height: 10px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+.xpbar > i { display: block; height: 100%; background: var(--gold); border-radius: 99px; transition: width .4s ease; }
+.xprow { display: flex; justify-content: space-between; font-size: 13px; }
+.tower-wrap { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: end; }
+#tower { width: 116px; height: auto; display: block; }
+.gear { display: grid; gap: 6px; font-size: 13px; }
+.gear li { display: flex; gap: 8px; align-items: center; }
+.gear ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.gear .off { color: var(--muted); opacity: .55; }
+.pip { width: 10px; height: 10px; border-radius: 2px; background: var(--gold); flex: none; }
+.off .pip { background: var(--stone-off); }
+.mini-timer { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.mini-timer b { font-size: 22px; font-weight: 700; }
+a.btn { text-decoration: none; color: var(--fg); }
+
+/* ---- Navigation ---- */
+.nav { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.nav a {
+  text-decoration: none; color: var(--muted); padding: 10px 14px; font-weight: 600;
+  border-bottom: 3px solid transparent; margin-bottom: -1px; display: flex; gap: 8px; align-items: center;
+}
+.nav a[aria-current="page"] { color: var(--fg); border-color: var(--accent); }
+.nav svg { width: 18px; height: 18px; }
+.badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sky); display: inline-block; }
+
+/* ---- Boutons, champs ---- */
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 8px 14px; border-radius: 8px; font-weight: 600; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.sky { background: var(--sky); color: var(--bg); border-color: var(--sky); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--fg); }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+input[type="text"], textarea, select {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0;
+}
+textarea { width: 100%; min-height: 110px; font-family: ui-monospace, monospace; font-size: 12px; }
+
+/* ---- Quêtes ---- */
+.section-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.section-head h2 { font-family: var(--font-display); font-size: 24px; }
+.new-subject { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.new-subject input { flex: 1 1 220px; }
+.subjects { display: grid; gap: 16px; }
+.subject { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; }
+.subject-top { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.subject-top h3 { font-size: 17px; min-width: 0; overflow-wrap: anywhere; }
+.subject-meta { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.subject.done-all { border-color: var(--accent); }
+.chip { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 99px; background: var(--surface-2); color: var(--muted); }
+.chip.ex { background: var(--sky-soft); color: var(--sky); }
+.chip.win { background: var(--accent); color: var(--accent-ink); }
+.pbar { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+.pbar > i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.task { display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; gap: 10px; align-items: center; padding: 6px 4px; border-radius: 6px; }
+.task:hover { background: var(--surface-2); }
+.task .t { overflow-wrap: anywhere; }
+.task.done .t { color: var(--muted); text-decoration: line-through; }
+.check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line); background: var(--surface); display: grid; place-items: center; padding: 0; }
+.task.done .check { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.xp-tag { font-weight: 700; font-size: 12px; padding: 1px 7px; border-radius: 5px; background: var(--gold-soft); color: var(--gold); white-space: nowrap; }
+.add-task { display: flex; gap: 8px; flex-wrap: wrap; }
+.add-task input { flex: 1 1 200px; }
+.diff { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.diff button { border: 0; background: var(--surface); padding: 6px 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.diff button[aria-pressed="true"] { background: var(--gold-soft); color: var(--gold); }
+.icon-btn { border: 0; background: transparent; color: var(--muted); padding: 4px; border-radius: 6px; display: grid; place-items: center; }
+.icon-btn:hover { color: var(--danger); background: var(--surface-2); }
+.empty { border: 1px dashed var(--line); border-radius: var(--radius); padding: 24px; text-align: center; color: var(--muted); }
+
+/* ---- Minuteur ---- */
+.timer-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; display: grid; gap: 20px; justify-items: center; text-align: center; }
+.timer-card.is-pause { background: var(--sky-soft); border-color: var(--sky); }
+.ring { position: relative; width: min(260px, 70vw); aspect-ratio: 1; max-width: 100%; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring .c-bg { stroke: var(--surface-2); }
+.ring .c-fg { stroke: var(--accent); transition: stroke-dashoffset .3s linear; }
+.is-pause .ring .c-fg { stroke: var(--sky); }
+.is-pause .ring .c-bg { stroke: var(--surface); }
+.ring-txt { position: absolute; inset: 0; display: grid; place-content: center; gap: 2px; }
+.ring-txt b { font-size: clamp(40px, 12vw, 56px); font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+.presets { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.preset { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 12px; text-align: left; display: grid; }
+.preset[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.preset small { color: var(--muted); }
+.timer-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.cycles { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.cycles i { width: 12px; height: 12px; border-radius: 3px; background: var(--stone-off); display: inline-block; }
+.cycles i.on { background: var(--accent); }
+.note { font-size: 13px; color: var(--muted); max-width: 52ch; }
+.earned { background: var(--sky-soft); color: var(--fg); border: 1px solid var(--sky); border-radius: 8px; padding: 10px 14px; font-weight: 600; }
+
+/* ---- Rythme ---- */
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-bottom: 18px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 2px; }
+.stat b { font-weight: 700; font-size: 28px; line-height: 1.1; }
+.stat .ok { color: var(--accent); } .stat .warn { color: var(--gold); }
+.chart-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; overflow-x: auto; }
+.legend { display: flex; gap: 14px; font-size: 13px; color: var(--muted); margin-top: 8px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; background: var(--c); vertical-align: -1px; }
+
+/* ---- Succès ---- */
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.ach { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; }
+.ach .medal { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--gold-soft); color: var(--gold); font-family: var(--font-display); font-size: 18px; }
+.ach.locked { opacity: .55; }
+.ach.locked .medal { background: var(--surface-2); color: var(--muted); }
+.ach h3 { font-size: 15px; }
+.ach p { margin: 0; font-size: 13px; color: var(--muted); }
+.ranks { display: grid; gap: 8px; margin-top: 24px; }
+.rank-row { display: grid; grid-template-columns: 70px minmax(0,1fr); gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); }
+.rank-row.locked { opacity: .5; }
+.rank-row.current { border-color: var(--gold); }
+
+/* ---- Réglages ---- */
+.settings { display: grid; gap: 16px; max-width: 640px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 10px; }
+.panel h3 { font-size: 16px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ---- Toast & modale ---- */
+.toasts { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); display: grid; gap: 8px; z-index: 30; pointer-events: none; }
+.toast { background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 8px; font-weight: 600; box-shadow: 0 6px 20px rgb(0 0 0 / .2); animation: rise .25s ease; }
+.toast .g { color: var(--gold-soft); font-weight: 800; }
+@keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.modal-bg { position: fixed; inset: 0; background: rgb(10 20 14 / .55); display: grid; place-items: center; z-index: 40; padding: 16px; }
+.modal { background: var(--surface); border-radius: 14px; padding: 28px; max-width: 380px; width: 100%; text-align: center; display: grid; gap: 12px; border: 2px solid var(--gold); }
+.modal h2 { font-family: var(--font-display); font-size: 30px; color: var(--gold); }
+.modal .unlock { background: var(--surface-2); border-radius: 8px; padding: 10px; text-align: left; font-size: 14px; }
+
+/* ---- Responsive ---- */
+@media (max-width: 820px) {
+  .app { grid-template-columns: minmax(0, 1fr); gap: 18px; padding-block: 12px calc(env(safe-area-inset-bottom, 0px) + 88px); }
+  .hero { position: static; grid-template-columns: minmax(0,1fr); }
+  .rank-card { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
+  .rank-card > div:first-child, .rank-card .xpbar, .rank-card .xprow { grid-column: 1; }
+  .tower-wrap { grid-column: 2; grid-row: 1 / span 3; display: block; }
+  .gear { display: none; }
+  #tower { width: 56px; }
+  .hero .mini-timer { display: none; }
+  .nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; margin: 0; border: 0; border-top: 1px solid var(--line);
+    background: var(--surface); justify-content: space-around;
+    padding: 4px max(8px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 4px) max(8px, env(safe-area-inset-left, 0px));
+  }
+  .nav a { flex-direction: column; gap: 2px; font-size: 11px; padding: 6px 4px; border-bottom: 0; border-top: 3px solid transparent; margin: 0; }
+  .nav a[aria-current="page"] { border-top-color: var(--accent); }
+  .stats { grid-template-columns: minmax(0,1fr); }
+  .toasts { bottom: calc(env(safe-area-inset-bottom, 0px) + 80px); }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head><body>
+
+<div class="app">
+  <aside class="hero" aria-label="Progression">
+    <div class="brand"><h1>Quest</h1><span class="label" id="stones-label">0 / 100 pierres</span></div>
+    <div class="rank-card">
+      <div>
+        <div class="label">Rang</div>
+        <div class="rank-name" id="rank-name">Recrue</div>
+      </div>
+      <div class="xpbar" aria-hidden="true"><i id="xp-fill" style="width:0%"></i></div>
+      <div class="xprow num"><span><b id="xp-total">0</b> XP</span><span class="muted" id="xp-next">60 XP pour Éclaireur</span></div>
+      <div class="tower-wrap">
+        <svg id="tower" viewBox="0 0 116 172" role="img" aria-label="Tour de progression"></svg>
+        <div class="gear">
+          <div class="label">Équipement</div>
+          <ul id="gear-list"></ul>
+        </div>
+      </div>
+    </div>
+    <div class="mini-timer" id="mini-timer">
+      <div><div class="label" id="mini-phase">Minuteur</div><b class="num" id="mini-time">50:00</b></div>
+      <a class="btn" href="#minuteur">Ouvrir</a>
+    </div>
+  </aside>
+
+  <main>
+    <nav class="nav" aria-label="Sections">
+      <a href="#quetes" data-tab="quetes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Quêtes</a>
+      <a href="#minuteur" data-tab="minuteur"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>Minuteur <span class="badge-dot" id="nav-dot" hidden></span></a>
+      <a href="#rythme" data-tab="rythme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Rythme</a>
+      <a href="#succes" data-tab="succes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 4h8v5a4 4 0 0 1-8 0zM12 13v4M8 21h8M8 6H4a3 3 0 0 0 4 4M16 6h4a3 3 0 0 1-4 4"/></svg>Succès</a>
+      <a href="#reglages" data-tab="reglages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Réglages</a>
+    </nav>
+    <section id="view"></section>
+  </main>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="modal-root"></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ================= Données de jeu ================= */
+const RANKS = [
+  { name: "Recrue",            xp: 0,    gear: "Bâton de marche",    skill: "Persévérance : chaque tâche finie compte." },
+  { name: "Éclaireur",         xp: 60,   gear: "Lanterne",           skill: "Vision claire : repérer la prochaine tâche." },
+  { name: "Aventurier",        xp: 150,  gear: "Épée courte",        skill: "Coup précis : bonus d'attaque contre les slimes." },
+  { name: "Vétéran",           xp: 280,  gear: "Bouclier de chêne",  skill: "Garde : encaisse un coup de plus." },
+  { name: "Champion",          xp: 450,  gear: "Armure de cuir",     skill: "Endurance : plus d'énergie par cycle de focus." },
+  { name: "Héros",             xp: 700,  gear: "Cape de voyage",     skill: "Élan : monte un étage plus vite." },
+  { name: "Légende de la Tour", xp: 1000, gear: "Couronne d'étoiles", skill: "Ascension : accès au sommet." },
+];
+const DIFF = [
+  { xp: 10, label: "Simple" },
+  { xp: 25, label: "Moyenne" },
+  { xp: 50, label: "Costaude" },
+];
+const PRESETS = {
+  sprint:    { name: "Sprint",    focus: 25, pause: 5,  long: 15, every: 4 },
+  equilibre: { name: "Équilibre", focus: 50, pause: 10, long: 20, every: 3 },
+  plongee:   { name: "Plongée",   focus: 90, pause: 20, long: 30, every: 2 },
+};
+const EXPRESS_MIN = 5;
+const ACHIEVEMENTS = [
+  { id: "first",   name: "Premier pas",        desc: "Terminer une première tâche." },
+  { id: "xp100",   name: "Centurie",           desc: "Atteindre 100 XP." },
+  { id: "big",     name: "Tâche costaude",     desc: "Terminer une tâche à 50 XP." },
+  { id: "subject", name: "Sujet bouclé",       desc: "Terminer tous les jalons d'un sujet." },
+  { id: "focus1",  name: "Premier focus",      desc: "Aller au bout d'un cycle de focus." },
+  { id: "cycles3", name: "Trois cycles",       desc: "Enchaîner 3 cycles de focus dans la journée." },
+  { id: "rest",    name: "Vrai repos",         desc: "Prendre une pause gagnée jusqu'au bout." },
+  { id: "xp1000",  name: "Sommet",             desc: "Atteindre 1000 XP." },
+  { id: "boss",    name: "Roi des slimes",     desc: "Vaincre le boss de l'étage 1.", soon: true },
+  { id: "legend",  name: "Trouvaille légendaire", desc: "Obtenir un objet légendaire.", soon: true },
+];
+
+/* ================= État & stockage ================= */
+const KEY = "quest.v1";
+const uid = () => Math.random().toString(36).slice(2, 10);
+const todayKey = (d = new Date()) => {
+  const z = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+};
+function defaultState() {
+  return {
+    version: 1,
+    xp: 0,
+    subjects: [{
+      id: uid(), name: "Exemple : préparer la réunion de lundi", example: true,
+      tasks: [
+        { id: uid(), title: "Relire les notes de la semaine", xp: 10, done: true },
+        { id: uid(), title: "Rédiger l'ordre du jour", xp: 25, done: false },
+        { id: uid(), title: "Préparer la démo", xp: 50, done: false },
+      ],
+    }],
+    timer: { preset: "equilibre", phase: "idle", kind: null, endAt: null, duration: 0, remaining: null, startedAt: null, sinceLong: 0, earned: null },
+    log: {},
+    ach: {},
+    settings: { sound: true },
+  };
+}
+let S;
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) { S = Object.assign(defaultState(), JSON.parse(raw)); return; }
+  } catch (e) {}
+  S = defaultState();
+  S.xp = 10; // XP de la tâche d'exemple déjà cochée
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+load();
+
+/* ================= Utilitaires ================= */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const rankIndex = xp => { let i = 0; RANKS.forEach((r, k) => { if (xp >= r.xp) i = k; }); return i; };
+const fmt = ms => { const t = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+const day = (k = todayKey()) => (S.log[k] ||= { focus: 0, pause: 0, cycles: 0 });
+
+function toast(html) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.innerHTML = html;
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
+function modal(html) {
+  const root = $("#modal-root");
+  root.innerHTML = `<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true">${html}<button class="btn primary" id="modal-ok">Continuer</button></div></div>`;
+  const close = () => { root.innerHTML = ""; };
+  $("#modal-ok").onclick = close; $("#modal-ok").focus();
+  root.querySelector(".modal-bg").onclick = e => { if (e.target.classList.contains("modal-bg")) close(); };
+}
+let audioCtx;
+function chime(kind) {
+  if (!S.settings.sound) return;
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    const notes = kind === "pause" ? [523, 659, 784] : [784, 659, 523];
+    notes.forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "square"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, audioCtx.currentTime + i * 0.16);
+      g.gain.exponentialRampToValueAtTime(0.08, audioCtx.currentTime + i * 0.16 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + i * 0.16 + 0.15);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(audioCtx.currentTime + i * 0.16); o.stop(audioCtx.currentTime + i * 0.16 + 0.16);
+    });
+  } catch (e) {}
+}
+function notify(title, body) {
+  try {
+    if ("Notification" in window && Notification.permission === "granted" && document.hidden) new Notification(title, { body });
+  } catch (e) {}
+}
+
+/* ================= XP & succès ================= */
+function unlock(id) {
+  if (S.ach[id]) return;
+  S.ach[id] = todayKey();
+  const a = ACHIEVEMENTS.find(x => x.id === id);
+  setTimeout(() => toast(`Succès : ${esc(a.name)}`), 400);
+}
+function gainXP(n) {
+  const before = rankIndex(S.xp);
+  S.xp = Math.max(0, S.xp + n);
+  const after = rankIndex(S.xp);
+  if (n > 0) toast(`<span class="g">+${n} XP</span>`);
+  if (S.xp >= 100) unlock("xp100");
+  if (S.xp >= 1000) unlock("xp1000");
+  if (after > before) {
+    const r = RANKS[after];
+    chime("pause");
+    modal(`<div class="label">Nouveau rang</div><h2>${esc(r.name)}</h2>
+      <div class="unlock"><b>Équipement :</b> ${esc(r.gear)}</div>
+      <div class="unlock"><b>Compétence :</b> ${esc(r.skill)}</div>`);
+  }
+}
+
+/* ================= Tour (100 pierres, 1 par 10 XP) ================= */
+function drawTower() {
+  const stones = Math.min(100, Math.floor(S.xp / 10));
+  const svg = $("#tower");
+  const W = 10, H = 14, cols = 10, x0 = 8, yBase = 166;
+  let out = "";
+  // créneaux
+  for (let c = 0; c < 5; c++) {
+    const lit = stones >= 100;
+    out += `<rect x="${x0 + c * 21}" y="${yBase - 10 * H - 22}" width="10" height="10" fill="var(${lit ? "--gold" : "--stone-off"})"/>`;
+  }
+  for (let i = 0; i < 100; i++) {
+    const row = Math.floor(i / cols), col = i % cols;
+    const x = x0 + col * W, y = yBase - (row + 1) * H;
+    const on = i < stones;
+    out += `<rect x="${x + .5}" y="${y + .5}" width="${W - 1}" height="${H - 1}" rx="1.5" fill="var(${on ? "--accent" : "--stone-off"})" ${on && i === stones - 1 ? 'stroke="var(--gold)" stroke-width="1.5"' : ""}/>`;
+  }
+  // porte
+  out += `<path d="M48 166v-16a6 6 0 0 1 12 0v16z" fill="var(--fg)" opacity=".75"/>`;
+  // marques de rang
+  RANKS.slice(1).forEach(r => {
+    const y = yBase - (r.xp / 1000) * 10 * H;
+    out += `<line x1="2" x2="6" y1="${y}" y2="${y}" stroke="var(${S.xp >= r.xp ? "--gold" : "--line"})" stroke-width="2"/>`;
+  });
+  svg.innerHTML = out;
+  $("#stones-label").textContent = `${stones} / 100 pierres`;
+}
+
+function renderHero() {
+  const ri = rankIndex(S.xp), r = RANKS[ri], next = RANKS[ri + 1];
+  $("#rank-name").textContent = r.name;
+  $("#xp-total").textContent = S.xp;
+  if (next) {
+    const pct = ((S.xp - r.xp) / (next.xp - r.xp)) * 100;
+    $("#xp-fill").style.width = pct + "%";
+    $("#xp-next").textContent = `${next.xp - S.xp} XP pour ${next.name}`;
+  } else {
+    $("#xp-fill").style.width = "100%";
+    $("#xp-next").textContent = "Sommet atteint";
+  }
+  $("#gear-list").innerHTML = RANKS.map((x, k) =>
+    `<li class="${k <= ri ? "" : "off"}" title="${esc(x.name)}"><span class="pip"></span>${esc(x.gear)}</li>`).join("");
+  drawTower();
+}
+
+/* ================= Vues ================= */
+let tab = "quetes";
+let draftDiff = {}; // difficulté choisie par sujet
+
+function viewQuetes() {
+  const subs = S.subjects;
+  return `
+  <div class="section-head"><div><h2>Quêtes</h2><div class="muted">Des sujets, découpés en jalons. Simple 10 XP, moyenne 25, costaude 50.</div></div></div>
+  <form class="new-subject" id="f-subject">
+    <input type="text" id="in-subject" placeholder="Nouveau sujet (ex. : Rapport trimestriel)" aria-label="Nom du sujet" maxlength="120">
+    <button class="btn primary" type="submit">Créer le sujet</button>
+  </form>
+  <div class="subjects">
+    ${subs.length ? subs.map(viewSubject).join("") : `<div class="empty">Aucun sujet pour l'instant. Crée ton premier sujet, puis ajoute-lui des jalons.</div>`}
+  </div>`;
+}
+function viewSubject(s) {
+  const total = s.tasks.reduce((a, t) => a + t.xp, 0);
+  const done = s.tasks.filter(t => t.done).reduce((a, t) => a + t.xp, 0);
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const all = s.tasks.length > 0 && s.tasks.every(t => t.done);
+  const d = draftDiff[s.id] ?? 0;
+  return `
+  <article class="subject ${all ? "done-all" : ""}" data-sid="${s.id}">
+    <div class="subject-top">
+      <h3>${esc(s.name)}</h3>
+      <div class="subject-meta">
+        ${s.example ? `<span class="chip ex">Exemple</span>` : ""}
+        ${all ? `<span class="chip win">Bouclé</span>` : ""}
+        <span class="num muted">${done} / ${total} XP</span>
+        <button class="icon-btn" data-act="del-subject" aria-label="Supprimer le sujet" title="Supprimer le sujet">${ICON_X}</button>
+      </div>
+    </div>
+    <div class="pbar" aria-label="Progression ${pct} %"><i style="width:${pct}%"></i></div>
+    <ul class="tasks">
+      ${s.tasks.map(t => `
+      <li class="task ${t.done ? "done" : ""}" data-tid="${t.id}">
+        <button class="check" data-act="toggle" aria-pressed="${t.done}" aria-label="${t.done ? "Rouvrir" : "Terminer"} : ${esc(t.title)}">${t.done ? ICON_CHECK : ""}</button>
+        <span class="t">${esc(t.title)}</span>
+        <span class="xp-tag num">${t.xp} XP</span>
+        <button class="icon-btn" data-act="del-task" aria-label="Supprimer le jalon" title="Supprimer">${ICON_X}</button>
+      </li>`).join("")}
+    </ul>
+    <form class="add-task" data-act="add-task">
+      <input type="text" id="in-task-${s.id}" placeholder="Ajouter un jalon" aria-label="Nouveau jalon" maxlength="160">
+      <div class="diff" role="group" aria-label="Difficulté">
+        ${DIFF.map((x, k) => `<button type="button" data-act="diff" data-k="${k}" aria-pressed="${k === d}" title="${x.label}">${x.xp}</button>`).join("")}
+      </div>
+      <button class="btn" type="submit">Ajouter</button>
+    </form>
+  </article>`;
+}
+const ICON_X = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>`;
+const ICON_CHECK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-10"/></svg>`;
+
+function viewMinuteur() {
+  const T = S.timer, P = PRESETS[T.preset];
+  const running = T.phase !== "idle";
+  const cyclesToday = day().cycles;
+  return `
+  <div class="section-head"><div><h2>Minuteur</h2><div class="muted">La pause se gagne en finissant un focus. Pause longue tous les ${P.every} cycles.</div></div></div>
+  <div class="timer-card ${T.phase === "pause" ? "is-pause" : ""}" id="timer-card">
+    <div class="presets" role="group" aria-label="Préréglages">
+      ${Object.entries(PRESETS).map(([k, p]) => `
+        <button class="preset" data-act="preset" data-k="${k}" aria-pressed="${k === T.preset}" ${running ? "disabled" : ""}>
+          <b>${p.name}</b><small class="num">${p.focus} / ${p.pause} min</small></button>`).join("")}
+    </div>
+    <div class="ring">
+      <svg viewBox="0 0 120 120"><circle class="c-bg" cx="60" cy="60" r="52" fill="none" stroke-width="8"/>
+        <circle class="c-fg" id="ring-fg" cx="60" cy="60" r="52" fill="none" stroke-width="8" stroke-linecap="round" stroke-dasharray="326.73" stroke-dashoffset="0"/></svg>
+      <div class="ring-txt"><span class="label" id="t-phase"></span><b class="num" id="t-time">00:00</b><span class="muted" id="t-sub"></span></div>
+    </div>
+    <div id="t-earned"></div>
+    <div class="timer-actions" id="t-actions"></div>
+    <div class="cycles" aria-label="Cycles avant la pause longue">
+      Pause longue : ${Array.from({ length: P.every }, (_, i) => `<i class="${i < T.sinceLong ? "on" : ""}"></i>`).join("")}
+      <span>· ${cyclesToday} cycle${cyclesToday > 1 ? "s" : ""} aujourd'hui</span>
+    </div>
+    <p class="note">Pendant la pause, éloigne-toi de l'écran : marcher, boire un verre d'eau, regarder au loin, t'étirer. Bientôt, c'est aussi le moment d'explorer l'étage 1.</p>
+  </div>`;
+}
+function timerActions() {
+  const T = S.timer;
+  if (T.phase === "idle") {
+    if (T.earned) {
+      const P = PRESETS[T.preset];
+      const min = T.earned === "long" ? P.long : P.pause;
+      return `<button class="btn sky" data-act="start-pause">Prendre ma pause (${min} min)</button>
+              <button class="btn" data-act="start-focus">Enchaîner un focus</button>
+              <button class="btn ghost" data-act="skip-pause">Renoncer à la pause</button>`;
+    }
+    return `<button class="btn primary" data-act="start-focus">Lancer le focus</button>
+            <button class="btn" data-act="express">Pause express ${EXPRESS_MIN} min</button>`;
+  }
+  const paused = T.remaining != null;
+  return `<button class="btn ${paused ? "primary" : ""}" data-act="${paused ? "resume" : "hold"}">${paused ? "Reprendre" : "Suspendre"}</button>
+          <button class="btn ghost danger" data-act="stop">${T.phase === "focus" ? "Abandonner le focus" : "Terminer la pause"}</button>`;
+}
+function paintTimer() {
+  const T = S.timer, P = PRESETS[T.preset];
+  let left, total, phaseLbl, sub = "";
+  if (T.phase === "idle") {
+    total = (T.earned ? (T.earned === "long" ? P.long : P.pause) : P.focus) * 60000;
+    left = total;
+    phaseLbl = T.earned ? (T.earned === "long" ? "Pause longue gagnée" : "Pause gagnée") : "Prêt";
+  } else {
+    total = T.duration;
+    left = T.remaining != null ? T.remaining : T.endAt - Date.now();
+    phaseLbl = T.phase === "focus" ? "Focus" : (T.kind === "express" ? "Pause express" : T.kind === "long" ? "Pause longue" : "Pause");
+    if (T.remaining != null) sub = "suspendu";
+  }
+  const pct = total ? Math.max(0, Math.min(1, left / total)) : 1;
+  const time = fmt(left);
+  const el = $("#t-time");
+  if (el) {
+    el.textContent = time;
+    $("#t-phase").textContent = phaseLbl;
+    $("#t-sub").textContent = sub;
+    $("#ring-fg").setAttribute("stroke-dashoffset", (326.73 * (1 - pct)).toFixed(2));
+  }
+  $("#mini-phase").textContent = phaseLbl;
+  $("#mini-time").textContent = time;
+  $("#nav-dot").hidden = T.phase === "idle" && !T.earned;
+  document.title = T.phase === "idle" ? "Quest" : `${time} · ${phaseLbl} · Quest`;
+}
+
+function viewRythme() {
+  const d = day();
+  const tot = d.focus + d.pause;
+  const share = tot ? Math.round((d.pause / tot) * 100) : 0;
+  const cls = !tot ? "" : (share >= 15 && share <= 20 ? "ok" : "warn");
+  return `
+  <div class="section-head"><div><h2>Rythme</h2><div class="muted">Cible : 15 à 20 % du temps en pause.</div></div></div>
+  <div class="stats">
+    <div class="stat"><span class="label">Focus aujourd'hui</span><b class="num">${Math.round(d.focus)} min</b></div>
+    <div class="stat"><span class="label">Pause aujourd'hui</span><b class="num">${Math.round(d.pause)} min</b></div>
+    <div class="stat"><span class="label">Part de pause</span><b class="num ${cls}">${tot ? share + " %" : "–"}</b></div>
+  </div>
+  <div class="chart-card">
+    <div class="label">7 derniers jours (minutes)</div>
+    ${chart7()}
+    <div class="legend"><span style="--c: var(--accent)">Focus</span><span style="--c: var(--sky)">Pause</span></div>
+  </div>`;
+}
+function chart7() {
+  const days = [];
+  for (let i = 6; i >= 0; i--) { const dt = new Date(); dt.setDate(dt.getDate() - i); days.push(dt); }
+  const data = days.map(dt => { const l = S.log[todayKey(dt)] || { focus: 0, pause: 0 }; return { dt, f: l.focus, p: l.pause }; });
+  const max = Math.max(60, ...data.map(x => x.f + x.p));
+  const step = max <= 120 ? 30 : max <= 300 ? 60 : 120;
+  const top = Math.ceil(max / step) * step;
+  const W = 560, H = 200, L = 36, B = 24, T = 8, bw = (W - L) / 7;
+  const y = v => T + (H - T - B) * (1 - v / top);
+  let g = "";
+  for (let v = 0; v <= top; v += step) g += `<line x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`;
+  const names = ["dim", "lun", "mar", "mer", "jeu", "ven", "sam"];
+  data.forEach((x, i) => {
+    const cx = L + i * bw + bw * 0.2, w = bw * 0.6;
+    const yf = y(x.f), yp = y(x.f + x.p);
+    if (x.f) g += `<rect x="${cx}" y="${yf}" width="${w}" height="${y(0) - yf}" fill="var(--accent)" rx="2"/>`;
+    if (x.p) g += `<rect x="${cx}" y="${yp}" width="${w}" height="${yf - yp}" fill="var(--sky)" rx="2"/>`;
+    const isToday = i === 6;
+    g += `<text x="${cx + w / 2}" y="${H - 6}" text-anchor="middle" font-size="11" fill="var(${isToday ? "--fg" : "--muted"})" ${isToday ? 'font-weight="700"' : ""}>${isToday ? "auj." : names[x.dt.getDay()]}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:420px;height:auto;display:block" role="img" aria-label="Minutes de focus et de pause sur 7 jours">${g}</svg>`;
+}
+
+function viewSucces() {
+  const ri = rankIndex(S.xp);
+  return `
+  <div class="section-head"><div><h2>Succès</h2><div class="muted">${Object.keys(S.ach).length} / ${ACHIEVEMENTS.filter(a => !a.soon).length} débloqués</div></div></div>
+  <div class="ach-grid">
+    ${ACHIEVEMENTS.map(a => {
+      const got = S.ach[a.id];
+      return `<div class="ach ${got ? "" : "locked"}"><div class="medal">${got ? "★" : "?"}</div>
+        <div><h3>${esc(a.name)}</h3><p>${esc(a.desc)}${a.soon ? " Arrive avec l'étage 1." : ""}${got ? ` · ${got.split("-").reverse().join("/")}` : ""}</p></div></div>`;
+    }).join("")}
+  </div>
+  <div class="ranks">
+    <div class="label">Les 7 rangs</div>
+    ${RANKS.map((r, k) => `<div class="rank-row ${k > ri ? "locked" : ""} ${k === ri ? "current" : ""}">
+      <span class="xp-tag num" style="justify-self:start">${r.xp} XP</span>
+      <div><b>${esc(r.name)}</b> · ${esc(r.gear)}<div class="muted" style="font-size:13px">${esc(r.skill)}</div></div></div>`).join("")}
+  </div>`;
+}
+
+function viewReglages() {
+  return `
+  <div class="section-head"><div><h2>Réglages</h2><div class="muted">Tes données restent sur cet appareil, dans ce navigateur.</div></div></div>
+  <div class="settings">
+    <div class="panel">
+      <h3>Son et notifications</h3>
+      <label class="row"><input type="checkbox" id="opt-sound" ${S.settings.sound ? "checked" : ""}> Jouer un signal à la fin d'un focus ou d'une pause</label>
+      <div class="row"><button class="btn" data-act="notif">Autoriser les notifications</button><span class="muted" id="notif-state"></span></div>
+    </div>
+    <div class="panel">
+      <h3>Sauvegarde</h3>
+      <p class="muted" style="margin:0">Copie ce texte pour garder une sauvegarde ou passer d'un appareil à l'autre. Pour restaurer, colle-le puis importe.</p>
+      <textarea id="io" spellcheck="false" aria-label="Données de sauvegarde"></textarea>
+      <div class="row">
+        <button class="btn" data-act="export">Afficher mes données</button>
+        <button class="btn" data-act="copy">Copier</button>
+        <button class="btn primary" data-act="import">Importer le texte collé</button>
+        <span class="muted" id="io-msg"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Tout effacer</h3>
+      <p class="muted" style="margin:0">Remet l'XP, les sujets, l'historique et les succès à zéro.</p>
+      <div class="row" id="reset-row"><button class="btn danger" data-act="reset">Tout effacer…</button></div>
+    </div>
+  </div>`;
+}
+
+function render() {
+  renderHero();
+  const v = { quetes: viewQuetes, minuteur: viewMinuteur, rythme: viewRythme, succes: viewSucces, reglages: viewReglages }[tab];
+  $("#view").innerHTML = v();
+  document.querySelectorAll(".nav a").forEach(a => { if (a.dataset.tab === tab) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  $("#mini-timer").hidden = tab === "minuteur";
+  if (tab === "minuteur") $("#t-actions").innerHTML = timerActions();
+  if (tab === "reglages") {
+    let st = "non disponible ici";
+    try { if ("Notification" in window) st = { granted: "autorisées", denied: "refusées", default: "pas encore demandé" }[Notification.permission]; } catch (e) {}
+    $("#notif-state").textContent = st;
+  }
+  paintTimer();
+}
+function route() {
+  const h = location.hash.slice(1);
+  tab = ["quetes", "minuteur", "rythme", "succes", "reglages"].includes(h) ? h : "quetes";
+  render();
+}
+
+/* ================= Minuteur : logique ================= */
+function startPhase(phase, kind, minutes) {
+  const T = S.timer;
+  T.phase = phase; T.kind = kind; T.duration = minutes * 60000;
+  T.startedAt = Date.now(); T.endAt = Date.now() + T.duration; T.remaining = null;
+  save(); render();
+}
+function addMinutes(phase, ms) {
+  const d = day();
+  d[phase === "focus" ? "focus" : "pause"] += ms / 60000;
+}
+function elapsed() {
+  const T = S.timer;
+  const left = T.remaining != null ? T.remaining : Math.max(0, T.endAt - Date.now());
+  return T.duration - left;
+}
+function finishPhase(completed) {
+  const T = S.timer, P = PRESETS[T.preset];
+  const ms = completed ? T.duration : elapsed();
+  addMinutes(T.phase, ms);
+  if (T.phase === "focus") {
+    if (completed) {
+      day().cycles += 1;
+      T.sinceLong += 1;
+      T.earned = T.sinceLong >= P.every ? "long" : "short";
+      unlock("focus1");
+      if (day().cycles >= 3) unlock("cycles3");
+      chime("pause");
+      notify("Focus terminé", "Ta pause est gagnée. Éloigne-toi de l'écran.");
+      toast("Focus terminé : pause gagnée");
+    }
+  } else {
+    if (T.kind === "long") T.sinceLong = 0;
+    if (completed && T.kind !== "express") unlock("rest");
+    if (completed) { chime("focus"); notify("Pause terminée", "Prêt pour le prochain focus ?"); toast("Pause terminée"); }
+  }
+  T.phase = "idle"; T.kind = null; T.endAt = null; T.remaining = null; T.startedAt = null;
+  save(); render();
+}
+setInterval(() => {
+  const T = S.timer;
+  if (T.phase !== "idle" && T.remaining == null && Date.now() >= T.endAt) finishPhase(true);
+  else paintTimer();
+}, 500);
+
+/* ================= Événements ================= */
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-act]");
+  if (!b || b.tagName === "FORM") return;
+  const act = b.dataset.act;
+  const art = b.closest("[data-sid]");
+  const s = art && S.subjects.find(x => x.id === art.dataset.sid);
+  const T = S.timer;
+  switch (act) {
+    case "toggle": {
+      const t = s.tasks.find(x => x.id === b.closest("[data-tid]").dataset.tid);
+      t.done = !t.done;
+      if (t.done) {
+        gainXP(t.xp);
+        unlock("first");
+        if (t.xp >= 50) unlock("big");
+        if (s.tasks.every(x => x.done)) { unlock("subject"); }
+      } else {
+        S.xp = Math.max(0, S.xp - t.xp);
+        toast(`−${t.xp} XP (jalon rouvert)`);
+      }
+      break;
+    }
+    case "del-task": s.tasks = s.tasks.filter(x => x.id !== b.closest("[data-tid]").dataset.tid); break;
+    case "del-subject": S.subjects = S.subjects.filter(x => x !== s); toast("Sujet supprimé (l'XP gagnée reste acquise)"); break;
+    case "diff": draftDiff[s.id] = +b.dataset.k; break;
+    case "preset": T.preset = b.dataset.k; break;
+    case "start-focus": T.earned = null; startPhase("focus", null, PRESETS[T.preset].focus); askNotifOnce(); return;
+    case "start-pause": { const k = T.earned; T.earned = null; startPhase("pause", k, k === "long" ? PRESETS[T.preset].long : PRESETS[T.preset].pause); return; }
+    case "skip-pause": if (T.earned === "long") T.sinceLong = 0; T.earned = null; break;
+    case "express": startPhase("pause", "express", EXPRESS_MIN); return;
+    case "hold": T.remaining = Math.max(0, T.endAt - Date.now()); break;
+    case "resume": T.endAt = Date.now() + T.remaining; T.remaining = null; break;
+    case "stop": finishPhase(false); return;
+    case "notif": try { Notification.requestPermission().then(render); } catch (e) {} return;
+    case "export": $("#io").value = JSON.stringify(S); $("#io-msg").textContent = ""; return;
+    case "copy": {
+      const ta = $("#io"); if (!ta.value) ta.value = JSON.stringify(S);
+      navigator.clipboard?.writeText(ta.value).then(() => $("#io-msg").textContent = "Copié.", () => { ta.select(); $("#io-msg").textContent = "Sélectionné : copie avec Ctrl+C."; });
+      return;
+    }
+    case "import": {
+      try {
+        const d = JSON.parse($("#io").value);
+        if (!d || !Array.isArray(d.subjects) || typeof d.xp !== "number") throw 0;
+        S = Object.assign(defaultState(), d); save(); render(); toast("Données importées");
+      } catch (err) { $("#io-msg").textContent = "Texte non reconnu : colle une sauvegarde Quest complète."; }
+      return;
+    }
+    case "reset":
+      $("#reset-row").innerHTML = `<span>Sûr ? Tout sera perdu.</span><button class="btn danger" data-act="reset-yes">Oui, tout effacer</button><button class="btn ghost" data-act="reset-no">Annuler</button>`;
+      return;
+    case "reset-yes": S = defaultState(); S.subjects = []; S.xp = 0; save(); render(); toast("Tout est remis à zéro"); return;
+    case "reset-no": break;
+    default: return;
+  }
+  save(); render();
+});
+document.addEventListener("submit", e => {
+  e.preventDefault();
+  const f = e.target;
+  if (f.id === "f-subject") {
+    const v = $("#in-subject").value.trim(); if (!v) return;
+    S.subjects.unshift({ id: uid(), name: v, tasks: [] });
+    save(); render();
+    const inp = document.getElementById(`in-task-${S.subjects[0].id}`); inp && inp.focus();
+    return;
+  }
+  if (f.dataset.act === "add-task") {
+    const sid = f.closest("[data-sid]").dataset.sid;
+    const s = S.subjects.find(x => x.id === sid);
+    const inp = document.getElementById(`in-task-${sid}`);
+    const v = inp.value.trim(); if (!v) return;
+    s.tasks.push({ id: uid(), title: v, xp: DIFF[draftDiff[sid] ?? 0].xp, done: false });
+    save(); render();
+    document.getElementById(`in-task-${sid}`)?.focus();
+  }
+});
+document.addEventListener("change", e => {
+  if (e.target.id === "opt-sound") { S.settings.sound = e.target.checked; save(); }
+});
+let notifAsked = false;
+function askNotifOnce() {
+  if (notifAsked) return; notifAsked = true;
+  try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
+}
+window.addEventListener("hashchange", route);
+window.addEventListener("storage", e => { if (e.key === KEY) { load(); render(); } });
+
+// Phase terminée pendant que l'app était fermée
+if (S.timer.phase !== "idle" && S.timer.remaining == null && Date.now() >= S.timer.endAt) finishPhase(true);
+route();
+
+// PWA : service worker quand l'app est hébergée (ignoré dans un aperçu)
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  try { navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}
+}
+})();
+</script>
+</body></html>
