@@ -698,10 +698,10 @@ const AMBIANCES = {
     sky: ["#7cc4ec", "#d9f1fa", "#eef9fd"], fog: ["#bfe6f7", 22, 46], hemi: ["#e8f6ff", "#5f8f45", 1.4], sun: ["#fff4dc", 2.2, [8, 16, 6]],
     water: [0.56, 0.62, 0.58], orb: null, rim: ["#ffffff", 0], rays: 0, paper: 0, motes: null, post: null },
   peint: { name: "Atelier peint", desc: "Fin d'après-midi dorée, touches de peinture et contours d'encre. Ombres bleu-vert, lumière orangée.",
-    sky: ["#3f7fa6", "#f4b77c", "#ffe0b0"], fog: ["#f0c193", 20, 56], hemi: ["#ffd9ad", "#2f5d55", 1.05], sun: ["#ffb874", 3.1, [12, 7, 5]],
-    water: [0.52, 0.55, 0.5], orb: { color: "#fff1c9", size: 9, dir: [12, 7, 5], glow: 0.9 }, rim: ["#ffc27a", 0.55], rays: 0.55, paper: 0.07,
-    motes: { color: "#ffe6a8", n: 160, size: 0.07, bright: 1.6, rise: 0.08, blink: 0.4 },
-    post: { paint: 1, outline: 0.7, ink: [0.09, 0.11, 0.06], bloom: 0.7, thr: 0.72, sat: 1.18, con: 1.06, lift: [0.0, 0.035, 0.06], gain: [1.08, 1.0, 0.88], vig: 0.38, grain: 0.025, exp: 1.0 } },
+    sky: ["#4f8db8", "#cfe0e6", "#f3dcbc"], fog: ["#dfe3d6", 28, 72], hemi: ["#fff1de", "#3a6a5a", 1.2], sun: ["#ffd8a8", 2.6, [10, 11, 5]],
+    water: [0.53, 0.58, 0.52], orb: { color: "#fff4d8", size: 8, dir: [10, 11, 5], glow: 0.5 }, rim: ["#ffc98a", 0.35], rays: 0.16, paper: 0.06,
+    motes: { color: "#fff0c0", n: 110, size: 0.06, bright: 1.2, rise: 0.08, blink: 0.4 },
+    post: { paint: 1, outline: 0.7, ink: [0.08, 0.1, 0.06], bloom: 0.35, thr: 1.0, sat: 1.1, con: 1.12, lift: [0.0, 0.015, 0.035], gain: [1.03, 1.0, 0.95], vig: 0.3, grain: 0.02, exp: 0.95 } },
   brume: { name: "Brume du Nord", desc: "Fantasy sombre et réaliste : ciel couvert, brume au sol, couleurs froides et sourdes.",
     sky: ["#4e5a61", "#8f9a9b", "#b3bbb8"], fog: ["#8e9998", 5, 30], hemi: ["#c4cfd2", "#2f3b2a", 1.0], sun: ["#e4ebef", 1.25, [-6, 14, -4]],
     water: [0.52, 0.25, 0.38], orb: null, rim: ["#c8d4dc", 0.15], rays: 0, paper: 0.02,
@@ -806,7 +806,7 @@ function buildPost() {
   P.b2 = P.b1.clone(); P.b3 = P.b1.clone();
   P.rays = fsPass(`uniform sampler2D tIn; uniform vec2 sun; varying vec2 vUv;
     void main() { vec2 d = (sun - vUv) / 28.0; vec2 uv = vUv; vec3 acc = vec3(0.0); float w = 1.0;
-      for (int i = 0; i < 28; i++) { acc += texture2D(tIn, uv).rgb * w; w *= 0.95; uv += d; }
+      for (int i = 0; i < 28; i++) { acc += texture2D(tIn, uv).rgb * w * exp(-length(uv - sun) * 3.0); w *= 0.95; uv += d; }
       gl_FragColor = vec4(acc / 12.0, 1.0); }`, { tIn: { value: null }, sun: { value: new THREE.Vector2(0.5, 1.2) } });
   P.bright = fsPass(`uniform sampler2D tIn; uniform float thr; varying vec2 vUv;
     void main() { vec3 c = texture2D(tIn, vUv).rgb; float l = max(c.r, max(c.g, c.b)); gl_FragColor = vec4(c * smoothstep(thr, thr + 0.35, l), 1.0); }`, { tIn: { value: null }, thr: { value: 0.7 } });
