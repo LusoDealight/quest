@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
 <title>Quest · La Tour</title>
 <meta name="theme-color" content="#2f6b45">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -606,6 +606,22 @@ const walkable = (x, y) => !"TC~ohbHwRW".includes(tileAt(x, y)) && !npcAt(x, y);
 
 /* ================= Étage 1 : rendu 3D (Three.js) ================= */
 const THREE_URL = window.QUEST_THREE_URL || "./vendor/three.module.min.js";
+const GLTF_URL = window.QUEST_GLTF_URL || "./vendor/loaders/GLTFLoader.js";
+const MESHOPT_URL = window.QUEST_MESHOPT_URL || "./vendor/libs/meshopt_decoder.module.js";
+const PERSO_DIR = window.QUEST_PERSO_DIR || "./assets/persos/";
+// Personnages Mixamo convertis en glTF compressé (meshopt + WebP). Un seul fichier de clips, partagé par tous.
+let GLTF_LOADER = null; const PERSO_CACHE = {};
+const SKEL_URL = window.QUEST_SKEL_URL || "./vendor/utils/SkeletonUtils.js";
+let SKEL = null;
+function gltfLoader() {
+  if (!GLTF_LOADER) GLTF_LOADER = Promise.all([import(GLTF_URL), import(MESHOPT_URL), import(SKEL_URL)]).then(([m, d, su]) => { SKEL = su; return new m.GLTFLoader().setMeshoptDecoder(d.MeshoptDecoder); });
+  return GLTF_LOADER;
+}
+function loadPerso(name) {
+  if (!PERSO_CACHE[name]) PERSO_CACHE[name] = gltfLoader().then(L => L.loadAsync(PERSO_DIR + name + ".glb")).catch(e => { console.warn("Personnage indisponible", name, e); delete PERSO_CACHE[name]; return null; });
+  return PERSO_CACHE[name].then(g => g && { scene: SKEL.clone(g.scene), animations: g.animations });
+}
+function loadHeroAsset() { return Promise.all([loadPerso("chevalier"), loadPerso("clips")]).then(([g, c]) => g && c ? { g, c } : null); }
 let THREE = null;
 let F = null; // état temporaire de l'étage (scène, slimes, chemin…)
 const DPR = Math.min(2, window.devicePixelRatio || 1);
@@ -820,7 +836,7 @@ function setToon(on, root) {
     const m = o.material;
     if (on && m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) {
       if (!m.userData.toon) {
-        const t = new THREE.MeshToonMaterial({ color: m.color, vertexColors: m.vertexColors, transparent: m.transparent, opacity: m.opacity, emissive: m.emissive, emissiveIntensity: m.emissiveIntensity, gradientMap: toonGrad(), side: m.side, depthWrite: m.depthWrite, fog: m.fog,
+        const t = new THREE.MeshToonMaterial({ color: m.color, map: m.map, alphaTest: m.alphaTest, vertexColors: m.vertexColors, transparent: m.transparent, opacity: m.opacity, emissive: m.emissive, emissiveIntensity: m.emissiveIntensity, gradientMap: toonGrad(), side: m.side, depthWrite: m.depthWrite, fog: m.fog,
           stencilWrite: m.stencilWrite, stencilRef: m.stencilRef, stencilFunc: m.stencilFunc, stencilZPass: m.stencilZPass });
         t.userData = { ...m.userData, std: m }; t.onBeforeCompile = m.onBeforeCompile; t.customProgramCacheKey = m.customProgramCacheKey;
         m.userData.toon = t;
@@ -1117,12 +1133,16 @@ function buildScene() {
   F.ghost.overrideMaterial = new THREE.MeshBasicMaterial({ color: "#eaf6ff", transparent: true, opacity: 0.4, depthFunc: THREE.GreaterDepth, depthWrite: false,
     stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.ReplaceStencilOp });
   F.heroMesh.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.userData.styl = false; stylize(o.material); Object.assign(o.material, { stencilWrite: true, stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp }); } });
+  F.mixers = [];
+  loadHeroAsset().then(g => { if (g && F && F.scene === scene) upgradeHero(g); });
   F.npcs = {};
   F.npcs.maelle = makePerson({ body: "#8e5bb5", skin: "#f1c7a0", hair: "#c4702e", hat: "#e2c26a", dress: true, staff: true });
   F.npcs.bran = makePerson({ body: "#6b4a2b", skin: "#e0a77f", hair: "#3b2a1e", apron: "#3a3a3a", beard: true, bald: true, wide: 1.15, hammer: true });
   F.npcs.lila = makePerson({ body: "#f08bb4", skin: "#f1c7a0", hair: "#f5d04a", dress: true, scale: 0.72, tails: true });
   F.npcs.odon = makePerson({ body: "#3d7a6a", skin: "#e8b48f", hair: "#9aa0a6", hat: "#5b6d61", beard: true, rod: true });
   Object.entries(F.npcs).forEach(([k, m]) => { const n = NPCS[k]; at(m, n.x, heightAt(n.x, n.y), n.y); m.rotation.y = k === "odon" ? -Math.PI / 2 : 0; m.add(F.npcs[k].mark = makeMark()); scene.add(m); });
+  for (const [k, p] of Object.entries(PERSOS_PNJ)) Promise.all([loadPerso(p), loadPerso("clips")]).then(([g, c]) => { if (g && c && F && F.scene === scene) upgradeNpc(k, g, c); });
+  for (const f of FIGURANTS) Promise.all([loadPerso(f.p), loadPerso("clips")]).then(([g, c]) => { if (g && c && F && F.scene === scene) addFigurant(f, g, c); });
   F.dew = DEW.map(d => { const g = makeDew(); at(g, d.x, 0, d.y); scene.add(g); return { d, g }; });
   F.rod = makeRodItem(); at(F.rod, ROD.x, heightAt(ROD.x, ROD.y) + 0.03, ROD.y); scene.add(F.rod);
   F.cat = makeCat(); scene.add(F.cat);
@@ -1288,6 +1308,118 @@ function makeHero(ri) {
   g.add(body, legL, legR);
   g.userData = { body, legL, legR, armL, armR };
   return g;
+}
+/* ---- Héros animé (squelette Mixamo, animations épée et bouclier) ---- */
+const HERO_H = 1.3;
+// Adapte les clips partagés à un personnage : hauteur des hanches à son échelle, marche et course sur place.
+function persoClips(clipsG, model, names) {
+  const ref = clipsG.scene.getObjectByName("mixamorigHips"), hips = model.getObjectByName("mixamorigHips");
+  const r = hips && ref ? hips.position.y / ref.position.y : 1;
+  return clipsG.animations.filter(c => !names || names.includes(c.name)).map(c0 => {
+    const c = c0.clone(), tr = c.tracks.find(t => t.name === "mixamorigHips.position");
+    if (tr) { const v = tr.values, keep = /death|block|impact/.test(c.name), x0 = v[0], z0 = v[2], n = v.length / 3;
+      for (let i = 0; i < v.length; i += 3) { const f = keep ? 0.5 : 0; v[i] = x0 + (v[i] - x0) * f; v[i + 1] *= r; v[i + 2] = z0 + (v[i + 2] - z0) * f; } }
+    return c;
+  });
+}
+// Prépare un modèle Mixamo : taille, ombres, style de l'ambiance (contour, cel-shading, silhouette)
+function dressPerso(model, height, stencil) {
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model), k = height / Math.max(0.01, box.max.y - box.min.y);
+  model.scale.multiplyScalar(k);
+  model.traverse(o => {
+    if (!o.isMesh) return;
+    o.castShadow = true; o.frustumCulled = false;
+    const m = o.material; m.roughness = 0.8; m.metalness = 0; m.userData.styl = false; stylize(m);
+    if (stencil) Object.assign(m, { stencilWrite: true, stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp });
+  });
+  return model;
+}
+function upgradeHero({ g: gltf, c: clipsG }) {
+  const old = F.heroMesh, model = gltf.scene;
+  const g = new THREE.Group(); dressPerso(model, HERO_H, true); g.add(model);
+  // armes dans les mains
+  const bone = n => model.getObjectByName(n);
+  const rh = bone("mixamorigRightHand"), lh = bone("mixamorigLeftForeArm");
+  g.updateMatrixWorld(true);
+  const ws = new THREE.Vector3();
+  const metal = sm("#e4ebef", { r: 0.25 }), gold = sm("#d8a640", { r: 0.3 }), wood = sm("#5e3e22");
+  if (rh) {
+    const sw = new THREE.Group();
+    const blade = mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.72, 4), metal, 0, 0.46, 0); blade.scale.z = 0.35; sw.add(blade);
+    sw.add(mesh(new THREE.BoxGeometry(0.24, 0.045, 0.06), gold, 0, 0.08, 0));
+    sw.add(mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.14, 8), wood, 0, 0, 0));
+    sw.add(mesh(sph(0.038, 8, 6), gold, 0, -0.08, 0));
+    rh.getWorldScale(ws); sw.scale.setScalar(1 / ws.x);
+    sw.position.set(0, 0.08 / ws.x, 0.025 / ws.x); sw.rotation.set(Math.PI / 2, 0, 0);
+    rh.add(sw); g.userData.sword = sw;
+  }
+  if (lh) {
+    const sh = new THREE.Group();
+    sh.add(mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.05, 24), sm("#8a2a22")));
+    const rim = mesh(new THREE.TorusGeometry(0.24, 0.025, 6, 24), gold); rim.rotation.x = Math.PI / 2; sh.add(rim);
+    sh.add(mesh(sph(0.06, 10, 8), gold, 0, 0.035, 0));
+    lh.getWorldScale(ws); sh.scale.setScalar(1 / ws.x);
+    sh.position.set(0, 0.17 / ws.x, -0.06 / ws.x); sh.rotation.set(0, 0, Math.PI / 2);
+    lh.add(sh); g.userData.shield = sh;
+  }
+  // l'ancien code anime ces groupes : on lui donne des leurres
+  const dummy = () => new THREE.Object3D();
+  Object.assign(g.userData, { body: dummy(), legL: dummy(), legR: dummy(), armL: dummy(), armR: dummy(), skinned: true });
+  g.traverse(o => { if (o.isMesh && !o.isSkinnedMesh) { o.castShadow = true; Object.assign(o.material, { stencilWrite: true, stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp }); } });
+  if (F.amb && F.amb.toon) setToon(true, g);
+  g.position.copy(old.position); g.rotation.copy(old.rotation);
+  (old.parent || F.scene).add(g); old.parent && old.parent.remove(old);
+  F.heroMesh = g;
+  const mixer = new THREE.AnimationMixer(model), acts = {};
+  persoClips(clipsG, model).forEach(c => { acts[c.name] = mixer.clipAction(c); });
+  ["slash", "block", "impact", "death", "power"].forEach(n => { if (acts[n]) { acts[n].setLoop(THREE.LoopOnce, 1); acts[n].clampWhenFinished = true; } });
+  F.heroAnim = { mixer, acts, cur: null, until: 0 };
+  heroPlay("idle");
+}
+// Habitants Mixamo : remplacent le personnage dessiné quand le modèle est chargé
+const PERSOS_PNJ = { maelle: "paysanne" };
+function upgradeNpc(key, gltf, clipsG) {
+  const old = F.npcs[key]; if (!old) return;
+  const model = dressPerso(gltf.scene, key === "lila" ? 0.95 : 1.32, false);
+  const g = new THREE.Group(); g.add(model);
+  g.position.copy(old.position); g.rotation.copy(old.rotation); g.mark = old.mark; g.add(old.mark);
+  if (F.amb && F.amb.toon) setToon(true, g);
+  old.parent && old.parent.add(g); old.parent && old.parent.remove(old); F.npcs[key] = g;
+  const mixer = new THREE.AnimationMixer(model), c = persoClips(clipsG, model, ["idle2"])[0];
+  if (c) { const a = mixer.clipAction(c); a.time = Math.random() * c.duration; a.play(); }
+  F.mixers.push(mixer);
+}
+// Figurants : silhouettes Mixamo posées dans le décor, sans dialogue
+const FIGURANTS = [{ p: "maria", x: 23.35, y: 35.1, r: Math.PI * 0.9 }];
+function addFigurant(f, gltf, clipsG) {
+  const model = dressPerso(gltf.scene, 1.38, false), g = new THREE.Group(); g.add(model);
+  g.position.set(f.x, heightAt(f.x, f.y), f.y); g.rotation.y = f.r;
+  if (F.amb && F.amb.toon) setToon(true, g);
+  F.scene.add(g);
+  const mixer = new THREE.AnimationMixer(model), c = persoClips(clipsG, model, ["idle"])[0];
+  if (c) { const a = mixer.clipAction(c); a.time = Math.random() * c.duration; a.play(); }
+  F.mixers.push(mixer);
+}
+function heroPlay(name, once = false, fade = 0.2) {
+  const A = F && F.heroAnim; if (!A || !A.acts[name]) return false;
+  const a = A.acts[name];
+  if (A.cur === a && !once) return true;
+  a.reset().setEffectiveWeight(1).play();
+  if (A.cur && A.cur !== a) A.cur.crossFadeTo(a, fade, false);
+  A.cur = a; A.until = once ? performance.now() + (a.getClip().duration / a.timeScale) * 1000 - fade * 1000 : 0;
+  return true;
+}
+function heroAnimTick(now, dt) {
+  const A = F.heroAnim; if (!A) return;
+  A.mixer.update(dt / 1000);
+  if (A.lock) return;
+  if (A.until && now < A.until) return;
+  A.until = 0;
+  const h = F.hero;
+  if (C) { heroPlay("idle"); return; }
+  if (h.moving) { const run = (h.pace || 1) > 0.65; heroPlay(run ? "run" : "walk"); A.acts.run.timeScale = 1; A.acts.walk.timeScale = 1.2; }
+  else heroPlay("idle");
 }
 function makePerson(o) {
   const g = new THREE.Group(), s = o.scale || 1, wd = o.wide || 1;
@@ -1564,6 +1696,8 @@ function draw(now, dt) {
   const sw = h.moving ? Math.sin(now / 90) * 0.6 * Math.max(0.4, h.pace || 1) : 0;
   u.legL.rotation.x = sw; u.legR.rotation.x = -sw; u.armL.rotation.x = -sw * 0.7; u.armR.rotation.x = sw * 0.7;
   u.body.position.y = h.moving ? Math.abs(Math.sin(now / 90)) * 0.05 : Math.sin(now / 600) * 0.01;
+  heroAnimTick(now, dt);
+  if (F.mixers) for (const m of F.mixers) m.update(dt / 1000);
   // slimes
   for (const s of F.slimes) {
     const gx = s.hold ? s.hold.x : s.x, gy = s.hold ? s.hold.y : s.y;
@@ -1925,6 +2059,12 @@ function popDmg(obj, n, hurt) {
 }
 function heroAttackFx(dmg) {
   if (!F || !C) return; const s = C.sl, u = F.heroMesh.userData;
+  if (u.skinned && heroPlay("slash", true, 0.1)) {
+    F.anim.push({ t0: performance.now(), dur: 700, step: k => { F.lunge = 0.35 * k; }, end: () => { F.lunge = 0; } });
+    setTimeout(() => { if (!F || !s.mesh) return; flash(s.mesh, "#ffffff"); popDmg(s.mesh, dmg, false);
+      const b = s.mesh.userData.body; F.anim.push({ t0: performance.now(), dur: 260, step: k => b.scale.set(1 + 0.25 * k, 1 - 0.3 * k, 1 + 0.25 * k) }); }, 380);
+    return;
+  }
   F.anim.push({ t0: performance.now(), dur: 440, step: k => { F.lunge = 0.55 * k; u.armR.rotation.x = -2.5 * k; u.body.rotation.x = 0.25 * k; }, end: () => { F.lunge = 0; u.body.rotation.x = 0; } });
   setTimeout(() => {
     if (!F || !s.mesh) return; flash(s.mesh, "#ffffff"); popDmg(s.mesh, dmg, false);
@@ -1934,7 +2074,7 @@ function heroAttackFx(dmg) {
 function foeAttackFx(taken) {
   if (!F || !C) return; const s = C.sl;
   F.anim.push({ t0: performance.now(), dur: 380, step: k => { s.mesh.position.x = s.rx + (F.hero.rx - s.rx) * 0.45 * k; s.mesh.position.z = s.ry + (F.hero.ry - s.ry) * 0.45 * k; s.mesh.position.y += 0.6 * k; } });
-  setTimeout(() => { if (!F) return; flash(F.heroMesh, "#ff3b2f"); popDmg(F.heroMesh, taken, true); }, 190);
+  setTimeout(() => { if (!F) return; if (F.heroMesh.userData.skinned) heroPlay(taken ? "impact" : "block", true, 0.08); flash(F.heroMesh, "#ff3b2f"); popDmg(F.heroMesh, taken, true); }, 190);
 }
 function combatAct(a) {
   if (C.busy) return;
@@ -1974,6 +2114,7 @@ function combatAct(a) {
 }
 function victory() {
   const { sl, f } = C; C = null;
+  if (F && F.heroAnim) heroPlay("power", true, 0.15);
   removeSlime(sl);
   const q = G.q;
   const gold = rnd(f.gold[0], f.gold[1]); G.gold += gold;
@@ -1998,6 +2139,7 @@ function victory() {
 }
 function defeat() {
   C = null;
+  if (F && F.heroAnim) { heroPlay("death", true, 0.1); F.heroAnim.lock = true; }
   G.hp = Math.ceil(maxHp() / 2); G.pos = null; save();
   info("K.O.", `<p>Tu te réveilles à la Taverne, avec la moitié de tes PV. Le tavernier hoche la tête : « Tout le monde tombe, à la prairie. »</p>`, "Continuer", () => go("ville"));
 }
