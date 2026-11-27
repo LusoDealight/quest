@@ -101,6 +101,9 @@ main { flex: 1; padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 24px)
 .item .nm { font-weight: 700; overflow-wrap: anywhere; }
 .item .st { font-size: 13px; color: var(--muted); }
 .item .bt { display: flex; gap: 6px; flex-wrap: wrap; justify-content: end; }
+.dur { height: 4px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin-top: 4px; max-width: 160px; }
+.dur > i { display: block; height: 100%; background: var(--accent); }
+.dur > i.low { background: var(--danger); }
 .rar-0 { color: var(--r-common); } .rar-1 { color: var(--r-rare); } .rar-2 { color: var(--r-epic); } .rar-3 { color: var(--r-legend); }
 .skills { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .skills li { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 10px; align-items: start; }
@@ -157,6 +160,13 @@ body.floor main { padding: 0; position: relative; flex: 1; min-height: 0; displa
 .floor-bar > * { pointer-events: auto; }
 .floor-msg { flex: 1; min-width: 0; background: rgba(16,26,20,.82); color: #f1f5ef; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .floor-bar .btn { box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+@media (max-width: 560px) {
+  .floor-bar { flex-wrap: wrap; }
+  .floor-msg { order: -1; flex-basis: 100%; font-size: 12.5px; }
+  .floor-bar .btn { flex: 1; }
+}
+#joy { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--barh, 64px) + 10px) !important; }
+.act-btn { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--barh, 64px) + 10px) !important; }
 .floor-name { position: absolute; top: 10px; left: 12px; background: rgba(16,26,20,.78); color: #f1f5ef; font-family: var(--font-display); padding: 2px 10px; border-radius: 6px; font-size: 15px; pointer-events: none; }
 
 /* ---- Combat & fenêtres ---- */
@@ -224,6 +234,13 @@ const ITEM_NAMES = {
   armor:  ["Tunique de lin", "Gilet de cuir", "Cotte de mousse", "Armure du chêne ancien"],
   charm:  ["Trèfle à quatre feuilles", "Galet poli", "Ambre de la prairie", "Cœur de slime royal"],
 };
+const ITEM_NAMES2 = { // à partir de l'étage 2
+  weapon: ["Hachette de bûcheron", "Lance de frêne", "Épée d'ambre", "Lame du Grand Cerf"],
+  armor:  ["Veste de feuilles", "Cuir de loup", "Cotte d'écorce", "Armure d'automne"],
+  charm:  ["Gland porte-bonheur", "Plume de chouette", "Larme de résine", "Cœur de chêne"],
+};
+const DUR_MAX = [20, 30, 40, 60];  // usure : nombre de combats avant de casser (Commun → Légendaire)
+const ELIXIR_PRICE = 20, ELIXIR_HEAL = 30, KIT_PRICE = 12, KIT_FIX = 10;
 const SLOT_NAME = { weapon: "Arme", armor: "Armure", charm: "Talisman" };
 const ACTIVITIES = [
   { id: "marcher",  name: "Marcher", desc: "Fais quelques pas, même dans le couloir." },
@@ -271,18 +288,25 @@ function todoUnlock(id) { // succès partagés avec la todo list
 /* ================= État du jeu ================= */
 function newGame() {
   return {
-    v: 1, gold: 10, potions: 1, hp: null, train: 0,
+    v: 1, gold: 10, potions: 1, elixirs: 0, kits: 0, hp: null, train: 0,
+    lv: null, ckpt: 0, best: 1, regen: 0, shop: null, // lv : étage en cours (montée), ckpt : dernière Halte atteinte
     energy: 3, cyclesSeen: null,
     items: [], equip: { weapon: null, armor: null, charm: null },
     pauseId: null, rested: false, rest: null,
     pos: null, opts: { move: "auto", amb: "arcane", q: "haute" },
     q: { v: 2, acc: {}, done: {}, kills: 0, flowers: [], jelly: 0, rod: 0, cat: 0, riddle: false, moss: false, king: false, stairs: false, floor2: false },
+    q2: newQ2(),
   };
 }
+function newQ2() { return { v: 1, acc: {}, done: {}, wolves: 0, shrooms: 0, spores: 0, got: [], fires: [], chest: false, bridge: false, sylvain: false, emile: 0, cerf: false }; }
 let G;
 function loadGame() {
-  try { const raw = localStorage.getItem(GAME_KEY); if (raw) { const d = JSON.parse(raw); G = Object.assign(newGame(), d); G.q = d.q && d.q.v === 2 ? Object.assign(newGame().q, d.q) : newGame().q; return; } } catch (e) {}
+  try { const raw = localStorage.getItem(GAME_KEY); if (raw) { const d = JSON.parse(raw); G = Object.assign(newGame(), d); G.q = d.q && d.q.v === 2 ? Object.assign(newGame().q, d.q) : newGame().q; G.q2 = Object.assign(newQ2(), d.q2 || {}); fixItems(); return; } } catch (e) {}
   G = newGame();
+}
+function fixItems() { // anciennes sauvegardes : objets sans usure
+  G.items.forEach(it => { it.tier = it.tier || 1; if (it.durMax == null) { it.durMax = DUR_MAX[it.rarity] + 6 * (it.tier - 1); it.dur = it.durMax; } });
+  if (G.q.floor2) G.best = Math.max(G.best || 1, 2);
 }
 function save() { try { localStorage.setItem(GAME_KEY, JSON.stringify(G)); } catch (e) {} }
 loadGame();
@@ -290,19 +314,36 @@ loadGame();
 const itemById = id => G.items.find(i => i.id === id);
 const eq = slot => itemById(G.equip[slot]);
 function itemStat(it) {
-  const r = it.rarity, l = it.lvl;
-  if (it.slot === "weapon") return { atk: [1, 2, 4, 7][r] + l };
-  if (it.slot === "armor") return { def: [1, 2, 3, 5][r] + Math.floor((l + 1) / 2) };
-  return { hp: [3, 6, 10, 16][r] + 2 * l };
+  const r = it.rarity, l = it.lvl, t = (it.tier || 1) - 1;
+  if (it.slot === "weapon") return { atk: [1, 2, 4, 7][r] + l + t };
+  if (it.slot === "armor") return { def: [1, 2, 3, 5][r] + Math.floor((l + 1) / 2) + Math.floor((t + 1) / 2) };
+  return { hp: [3, 6, 10, 16][r] + 2 * l + 3 * t };
 }
 const statText = it => { const s = itemStat(it); return s.atk ? `+${s.atk} attaque` : s.def ? `+${s.def} défense` : `+${s.hp} PV max`; };
 const upCost = it => [5, 10, 20, 40][it.rarity] * (it.lvl + 1);
-const sellPrice = it => Math.round([3, 8, 20, 50][it.rarity] * (1 + it.lvl / 2));
+const sellPrice = it => Math.round([3, 8, 20, 50][it.rarity] * (1 + it.lvl / 2) * (1 + ((it.tier || 1) - 1) * 0.4) * (it.dur > 0 ? 1 : 0.4));
+const buyPrice = it => Math.round(sellPrice({ ...it, dur: 1 }) * 2.6);
+const durMaxOf = it => DUR_MAX[it.rarity] + 6 * ((it.tier || 1) - 1);
+const repairCost = it => Math.ceil((it.durMax - it.dur) * [1, 1.6, 2.4, 4][it.rarity] * 0.5);
+const working = it => it && it.dur > 0; // un objet cassé ne donne plus son bonus
+const durText = it => it.dur <= 0 ? `<b style="color:var(--danger)">cassé</b>` : `durabilité ${it.dur} / ${it.durMax}`;
 const maxTrain = () => 2 + rankIdx() * 2;
 const trainCost = () => 15 * (G.train + 1);
-function maxHp() { const c = eq("charm"); return 20 + 4 * rankIdx() + 3 * G.train + (c ? itemStat(c).hp : 0); }
-function atk() { const w = eq("weapon"); return 2 + G.train + (w ? itemStat(w).atk : 0) + (hasSkill(6) ? 2 : 0); }
-function def() { const a = eq("armor"); return a ? itemStat(a).def : 0; }
+function maxHp() { const c = eq("charm"); return 20 + 4 * rankIdx() + 3 * G.train + (working(c) ? itemStat(c).hp : 0); }
+function atk() { const w = eq("weapon"); return 2 + G.train + (working(w) ? itemStat(w).atk : 0) + (hasSkill(6) ? 2 : 0); }
+function def() { const a = eq("armor"); return working(a) ? itemStat(a).def : 0; }
+// Usure après un combat : l'arme si tu as frappé, l'armure si tu as été touché, le talisman à chaque combat.
+function wearAfterFight(hit, hurt, boss) {
+  const k = boss ? 2 : 1, msgs = [];
+  [["weapon", hit], ["armor", hurt], ["charm", true]].forEach(([sl, used]) => {
+    const it = eq(sl); if (!it || !used || it.dur <= 0) return;
+    const before = it.dur; it.dur = Math.max(0, it.dur - k);
+    if (it.dur === 0) msgs.push(`${esc(it.name)} est cassé !`);
+    else if (before > it.durMax * 0.25 && it.dur <= it.durMax * 0.25) msgs.push(`${esc(it.name)} est très usé`);
+  });
+  G.hp = Math.min(G.hp ?? maxHp(), maxHp());
+  msgs.forEach(m => toast(m));
+}
 const perCycle = () => (hasSkill(4) ? 4 : 3);
 const energyCap = () => (hasSkill(4) ? 12 : 10);
 
@@ -320,16 +361,21 @@ function syncEnergy() {
 }
 function onNewPause(p) {
   if (G.pauseId === p.id) return;
-  G.pauseId = p.id; G.rested = false; G.rest = null; G.pos = null;
-  G.hp = maxHp(); // la pause soigne
+  G.pauseId = p.id; G.rested = false; G.rest = null;
+  if (!G.lv || G.lv === "e1") { G.lv = null; G.pos = null; }
+  // la pause soigne… sauf en pleine montée : entre deux Haltes, pas de repos
+  if (!G.lv || isHalte()) G.hp = maxHp();
   save();
 }
-function makeItem(rarity, slot) {
+function makeItem(rarity, slot, tier) {
   slot = slot || ["weapon", "armor", "charm"][rnd(0, 2)];
-  return { id: uid(), slot, rarity, lvl: 0, name: ITEM_NAMES[slot][rarity] };
+  tier = tier || levelNum();
+  const it = { id: uid(), slot, rarity, lvl: 0, tier, name: (tier > 1 ? ITEM_NAMES2 : ITEM_NAMES)[slot][rarity] };
+  it.durMax = it.dur = durMaxOf(it);
+  return it;
 }
 function rollRarity(boss) {
-  const w = boss ? [0, 55, 35, 10] : G.rested ? [50, 32, 14, 4] : [70, 22, 7, 1];
+  const w = boss ? [0, 55, 35, 10] : G.rested ? [50, 32, 14, 4] : levelNum() > 1 ? [58, 28, 11, 3] : [70, 22, 7, 1];
   let x = Math.random() * 100;
   for (let i = 0; i < 4; i++) { if ((x -= w[i]) < 0) return i; }
   return 0;
@@ -359,13 +405,15 @@ function renderHUD() {
     <span class="chip">${esc(RANKS[rankIdx()].name)}</span>
     ${G.rested ? `<span class="chip rested">Reposé</span>` : ""}`;
 }
+let sheetRefresh = null; // fenêtre à redessiner après un achat, une réparation…
 function sheet(html, opts = {}) {
+  sheetRefresh = opts.refresh || null;
   const root = $("#sheet-root");
   root.innerHTML = `<div class="sheet-bg${opts.clear ? " clear" : ""}"><div class="sheet" role="dialog" aria-modal="true">${html}</div></div>`;
   if (opts.dismiss) root.querySelector(".sheet-bg").onclick = e => { if (e.target.classList.contains("sheet-bg")) closeSheet(); };
   const f = root.querySelector("[data-focus]") || root.querySelector("button"); f && f.focus({ preventScroll: true });
 }
-function closeSheet() { $("#sheet-root").innerHTML = ""; }
+function closeSheet() { $("#sheet-root").innerHTML = ""; sheetRefresh = null; }
 const sheetOpen = () => !!$("#sheet-root").firstChild;
 function info(title, body, btn = "Continuer", after) {
   sheet(`<h2>${title}</h2><div>${body}</div><button class="btn primary" id="info-ok">${btn}</button>`);
@@ -382,7 +430,7 @@ function render() {
   document.body.classList.toggle("floor", scene === "etage" && !locked);
   if (locked) { $("#view").innerHTML = viewLock(); return; }
   if (scene === "etage") { startFloor(); return; }
-  $("#view").innerHTML = ({ ville: viewTown, taverne: viewTavern, forge: viewForge, maitre: viewMaster, journal: viewJournal, etage2: viewFloor2 }[scene] || viewTown)();
+  $("#view").innerHTML = ({ ville: viewTown, taverne: viewTavern, forge: viewForge, maitre: viewMaster, journal: viewJournal, bientot: viewSoon }[scene] || viewTown)();
   window.scrollTo(0, 0);
 }
 
@@ -434,9 +482,18 @@ function viewTown() {
     <button class="place" data-go="taverne"><span class="ico">${ICONS.taverne}</span><div><h3>Taverne</h3><p>${G.rested ? "Tu es Reposé pour cette pause : meilleur butin." : "Une minute loin de l'écran avant de partir : bonus Reposé."}</p></div><span class="chip">${G.rested ? "Reposé" : "1 min"}</span></button>
     <button class="place" data-go="forge"><span class="ico">${ICONS.forge}</span><div><h3>Forge</h3><p>Équiper, améliorer ou vendre ton butin.</p></div><span class="chip num">${G.items.length} obj.</span></button>
     <button class="place" data-go="maitre"><span class="ico">${ICONS.maitre}</span><div><h3>Maître d'armes</h3><p>Entraînement et compétences de ton rang.</p></div><span class="chip num">Niv. ${G.train}</span></button>
-    <button class="place" data-go="journal"><span class="ico">${ICONS.journal}</span><div><h3>Journal de quêtes</h3><p>${q.floor2 ? "Étage 1 terminé." : nAcc ? `${nDone} / 7 quêtes terminées.` : "Les habitants du hameau ont besoin d'aide."}</p></div><span class="chip"></span></button>
-    <button class="place gate" data-go="etage"><span class="ico">${ICONS.porte}</span><div><h3>Porte de la Tour · Étage 1</h3><p>La prairie en 3D, son hameau et ses slimes. Explorer est gratuit, combattre coûte 1 énergie.</p></div><span class="chip">Entrer</span></button>
-  </div>`;
+    <button class="place" data-go="journal"><span class="ico">${ICONS.journal}</span><div><h3>Journal de quêtes</h3><p>${G.best > 1 ? `Étage 1 : ${nDone} / 7 · Étage 2 : ${Object.keys(G.q2.done).length} / 10.` : q.floor2 ? "Étage 1 terminé." : nAcc ? `${nDone} / 7 quêtes terminées.` : "Les habitants du hameau ont besoin d'aide."}</p></div><span class="chip"></span></button>
+    ${gateButtons()}
+  </div>
+  <p class="muted" style="font-size:13px;margin:0">La Tour se monte d'une traite : entre deux Haltes, pas de repos. Les PV ne remontent qu'avec les infusions, et l'équipement s'use. Tous les 5 étages, une Halte permet de se soigner, commercer et réparer. Si tu ressors ou tombes, tu repars de ta dernière Halte.</p>`;
+}
+function gateButtons() {
+  const b = (lv, title, txt, chip) => `<button class="place gate" data-act="enter" data-id="${lv}"><span class="ico">${ICONS.porte}</span><div><h3>${title}</h3><p>${txt}</p></div><span class="chip">${chip}</span></button>`;
+  const out = [];
+  if (G.lv && G.lv !== "e1") out.push(b(G.lv, `Reprendre · ${levelTitle(G.lv)}`, "Ta montée est en cours : tu reprends là où tu t'étais arrêté, avec tes PV actuels.", "Reprendre"));
+  out.push(b("e1", "Porte de la Tour · Étage 1", "La prairie, son hameau et ses slimes. Explorer est gratuit, combattre coûte 1 énergie.", "Entrer"));
+  if (G.ckpt) out.push(b("h" + G.ckpt, `Raccourci · Halte du palier ${G.ckpt}`, "Reprendre la montée depuis ta dernière Halte.", "Y aller"));
+  return out.join("");
 }
 function viewTavern() {
   const r = G.rest;
@@ -461,24 +518,38 @@ function viewTavern() {
   <div class="title-row"><div><h2>Taverne</h2><div class="muted">Le tavernier sert une infusion, et un conseil : décroche vraiment.</div></div></div>
   ${body}
   <div class="panel"><h3>Infusion de la prairie</h3>
-    <p class="muted" style="margin:0">Rend ${POTION_HEAL} PV en combat. Tu en as <b class="num">${G.potions}</b>.</p>
-    <div><button class="btn" data-act="buy-potion" ${G.gold < POTION_PRICE ? "disabled" : ""}>Acheter · ${POTION_PRICE} or</button></div></div>`;
+    <p class="muted" style="margin:0">Rend ${POTION_HEAL} PV. Tu en as <b class="num">${G.potions}</b>.</p>
+    <div><button class="btn" data-act="buy-potion" ${G.gold < POTION_PRICE ? "disabled" : ""}>Acheter · ${POTION_PRICE} or</button></div></div>
+  <div class="panel"><h3>Élixir du tavernier</h3>
+    <p class="muted" style="margin:0">Rend ${ELIXIR_HEAL} PV. Utile pour enchaîner les étages sans repos. Tu en as <b class="num">${G.elixirs}</b>.</p>
+    <div><button class="btn" data-act="buy-elixir" ${G.gold < ELIXIR_PRICE ? "disabled" : ""}>Acheter · ${ELIXIR_PRICE} or</button></div></div>`;
+}
+// Liste d'objets partagée : Forge de la Ville, forgeron de la Halte (o.repair), marchande (o.sell), sac (o.bag)
+function itemsHtml(o = {}) {
+  return ["weapon", "armor", "charm"].map(sl => {
+    const its = G.items.filter(i => i.slot === sl).sort((a, b) => b.rarity - a.rarity || (b.tier || 1) - (a.tier || 1) || b.lvl - a.lvl);
+    return `<div class="panel"><h3>${SLOT_NAME[sl]}</h3>${its.length ? `<ul class="items">${its.map(it => {
+      const on = G.equip[sl] === it.id, worn = it.dur < it.durMax;
+      return `<li class="item ${on ? "eq" : ""}"><div><div class="nm rar-${it.rarity}">${esc(it.name)}${it.lvl ? ` +${it.lvl}` : ""}</div>
+        <div class="st">${RARITY[it.rarity]} · ${statText(it)}${on ? " · équipé" : ""}</div>
+        <div class="dur"><i style="width:${Math.round(100 * it.dur / it.durMax)}%" class="${it.dur <= it.durMax * 0.25 ? "low" : ""}"></i></div><div class="st">${durText(it)}</div></div>
+        <div class="bt">${on ? "" : `<button class="btn small" data-act="equip" data-id="${it.id}">Équiper</button>`}
+          ${o.repair && worn ? `<button class="btn small" data-act="repair" data-id="${it.id}" ${G.gold < repairCost(it) ? "disabled" : ""}>Réparer · ${repairCost(it)} or</button>` : ""}
+          ${o.upgrade ? (it.lvl < 5 ? `<button class="btn small" data-act="upgrade" data-id="${it.id}" ${G.gold < upCost(it) ? "disabled" : ""}>Améliorer · ${upCost(it)} or</button>` : `<span class="chip">Max</span>`) : ""}
+          ${o.sell && !on ? `<button class="btn small ghost" data-act="sell" data-id="${it.id}">Vendre ${sellPrice(it)} or</button>` : ""}</div></li>`;
+    }).join("")}</ul>` : `<p class="muted" style="margin:0">Rien pour l'instant. Les monstres laissent parfois tomber un objet.</p>`}</div>`;
+  }).join("");
+}
+function repairAllCost() { return G.items.filter(i => i.dur < i.durMax).reduce((a, i) => a + repairCost(i), 0); }
+function repairBar() {
+  const c = repairAllCost();
+  return `<div class="panel"><h3>Réparations</h3><p class="muted" style="margin:0">L'équipement s'use à chaque combat. Cassé, il ne donne plus aucun bonus.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${c ? `<button class="btn primary" data-act="repair-all" ${G.gold < c ? "disabled" : ""}>Tout réparer · ${c} or</button>` : `<span class="chip">Tout est en bon état</span>`}
+    <button class="btn" data-act="buy-kit" ${G.gold < KIT_PRICE ? "disabled" : ""}>Trousse de réparation · ${KIT_PRICE} or</button><span class="muted" style="align-self:center">Tu en as ${G.kits}.</span></div></div>`;
 }
 function viewForge() {
-  const slots = ["weapon", "armor", "charm"];
-  const list = slots.map(sl => {
-    const its = G.items.filter(i => i.slot === sl).sort((a, b) => b.rarity - a.rarity || b.lvl - a.lvl);
-    return `<div class="panel"><h3>${SLOT_NAME[sl]}</h3>${its.length ? `<ul class="items">${its.map(it => {
-      const on = G.equip[sl] === it.id;
-      return `<li class="item ${on ? "eq" : ""}"><div><div class="nm rar-${it.rarity}">${esc(it.name)}${it.lvl ? ` +${it.lvl}` : ""}</div>
-        <div class="st">${RARITY[it.rarity]} · ${statText(it)}${on ? " · équipé" : ""}</div></div>
-        <div class="bt">${on ? "" : `<button class="btn small" data-act="equip" data-id="${it.id}">Équiper</button>`}
-          ${it.lvl < 5 ? `<button class="btn small" data-act="upgrade" data-id="${it.id}" ${G.gold < upCost(it) ? "disabled" : ""}>Améliorer · ${upCost(it)} or</button>` : `<span class="chip">Max</span>`}
-          ${on ? "" : `<button class="btn small ghost" data-act="sell" data-id="${it.id}">Vendre ${sellPrice(it)} or</button>`}</div></li>`;
-    }).join("")}</ul>` : `<p class="muted" style="margin:0">Rien pour l'instant. Les slimes laissent parfois tomber un objet.</p>`}</div>`;
-  }).join("");
   return `<button class="btn ghost back" data-go="ville">← La Ville</button>
-  <div class="title-row"><div><h2>Forge</h2><div class="muted">Attaque ${atk()} · Défense ${def()} · PV max ${maxHp()}</div></div></div>${list}`;
+  <div class="title-row"><div><h2>Forge</h2><div class="muted">Attaque ${atk()} · Défense ${def()} · PV max ${maxHp()}</div></div></div>${repairBar()}${itemsHtml({ repair: 1, upgrade: 1, sell: 1 })}`;
 }
 function viewMaster() {
   const ri = rankIdx(), mt = maxTrain();
@@ -491,13 +562,13 @@ function viewMaster() {
   <div class="panel"><h3>Compétences</h3><ul class="skills">${SKILLS.map((s, k) => `<li class="${k <= ri ? "" : "off"}"><span class="pip"></span><div><b>${esc(s.name)}</b> <span class="muted">· ${esc(RANKS[k].name)}, ${RANKS[k].xp} XP</span><div class="muted" style="font-size:13px">${esc(s.game)}</div></div></li>`).join("")}</ul></div>`;
 }
 /* ================= Quêtes de l'étage 1 ================= */
-const NPCS = {
+const NPCS1 = {
   maelle: { name: "Maëlle, la bergère", x: 17, y: 42 },
   bran:   { name: "Bran, le forgeron", x: 17, y: 38 },
   lila:   { name: "Lila", x: 23, y: 38 },
   odon:   { name: "Odon, le pêcheur", x: 29, y: 23 },
 };
-const QUESTS = [
+const QUESTS1 = [
   { id: "q1", giver: "maelle", title: "Les slimes de la prairie", turnIn: false,
     prog: q => `Vaincre 5 slimes : ${Math.min(5, q.kills)} / 5.`, ok: q => q.kills >= 5, doneTxt: "Les haies du nord se sont écartées." },
   { id: "q2", giver: "maelle", title: "Fleurs de rosée", turnIn: false,
@@ -513,33 +584,40 @@ const QUESTS = [
   { id: "q7", giver: "auto", title: "Le Roi des slimes", turnIn: false,
     prog: () => "Il t'attend dans la clairière du nord, derrière les haies.", ok: q => q.king },
 ];
+let NPCS = NPCS1, QUESTS = QUESTS1;
 const qById = id => QUESTS.find(x => x.id === id);
-function questLines() {
-  const q = G.q;
-  const acc = QUESTS.filter(x => q.acc[x.id]);
-  if (!acc.length) return `<ul class="qlist"><li><b>Rencontrer les habitants</b><span class="muted">Le hameau est juste après l'entrée de l'étage 1. Les « ! » dorés signalent quelqu'un qui a besoin d'aide.</span></li></ul>`;
-  const open = QUESTS.length - acc.length;
+const QS = () => LV.qs(); // état des quêtes de l'étage courant
+function questLines(L = LV) {
+  const q = L.qs(), QL = L.QUESTS;
+  if (!QL.length) return `<p class="muted" style="margin:0">Pas de quête ici : c'est une Halte. Repose-toi, commerce, répare.</p>`;
+  const acc = QL.filter(x => q.acc[x.id]);
+  if (!acc.length) return `<ul class="qlist"><li><b>Rencontrer les habitants</b><span class="muted">${L.firstHint}</span></li></ul>`;
+  const open = QL.length - acc.length;
   return `<ul class="qlist">${acc.map(x => `<li><b class="${q.done[x.id] ? "done" : ""}">${esc(x.title)}</b><span class="muted">${q.done[x.id] ? (x.doneTxt || "Terminée.") : x.prog(q)}</span></li>`).join("")}</ul>
     ${open ? `<p class="muted" style="margin:0">${open} autre${open > 1 ? "s" : ""} quête${open > 1 ? "s" : ""} à découvrir sur l'étage.</p>` : ""}`;
 }
-const allDone = () => QUESTS.every(x => G.q.done[x.id]);
 function viewJournal() {
   const q = G.q;
+  const e2 = G.best > 1 ? `<div class="title-row"><div><h2 style="font-size:20px">Étage 2 · La forêt d'automne</h2><div class="muted">${Object.keys(G.q2.done).length} / ${LEVELS.e2.QUESTS.length} terminées</div></div></div>
+  <div class="panel">${questLines(LEVELS.e2)}</div>` : "";
   return `<button class="btn ghost back" data-go="ville">← La Ville</button>
-  <div class="title-row"><div><h2>Journal de quêtes</h2><div class="muted">Étage 1 · La prairie · ${Object.keys(q.done).length} / ${QUESTS.length} terminées</div></div></div>
-  <div class="panel">${questLines()}</div>
+  ${e2}
+  <div class="title-row"><div><h2${e2 ? ` style="font-size:20px"` : ""}>${e2 ? "Étage 1 · La prairie" : "Journal de quêtes"}</h2><div class="muted">${e2 ? "" : "Étage 1 · La prairie · "}${Object.keys(q.done).length} / ${QUESTS1.length} terminées</div></div></div>
+  <div class="panel">${questLines(LEVELS.e1)}</div>
   ${q.king && !q.stairs ? `<div class="hint">Le Roi a laissé tomber un bout de carte : « Derrière l'eau qui tombe, la falaise est creuse. »</div>` : ""}
   ${q.stairs ? `<div class="hint">L'escalier caché est derrière la cascade, au nord-ouest.</div>` : ""}`;
 }
-function viewFloor2() {
-  return `<div class="lock">${TOWER_SVG}<h2>Étage 2 · La forêt d'automne</h2>
-    <p>Tu grimpes l'escalier taillé dans la falaise : des arbres orangés à perte de vue. Cet étage arrive dans la prochaine version.</p>
-    <button class="btn primary" data-go="ville">Redescendre en ville</button></div>`;
+function viewSoon() {
+  const n = levelNum();
+  return `<div class="lock">${TOWER_SVG}<h2>${esc(levelTitle(G.soon || "e3"))}</h2>
+    <p>L'escalier continue de monter dans la pierre… mais cette partie de la Tour est encore en construction. Elle arrive dans une prochaine version.</p>
+    <p class="muted">Ta montée est gardée : tu restes sur l'étage ${n} en attendant.</p>
+    <button class="btn primary" data-act="back-floor">Retourner sur l'étage ${n}</button>
+    ${ESSAI ? `<button class="btn" data-act="enter" data-id="h5">Aperçu : visiter la Halte du palier 5</button>` : ""}</div>`;
 }
 
 /* ================= Étage 1 : la carte ================= */
-const MW = 40, MH = 48;
-const START = { x: 20, y: 43 }, PORTAL = { x: 20, y: 45 }, RIDDLE = { x: 10, y: 11 }, FALL = { x: 8, y: 7 };
+const START1 = { x: 20, y: 43 }, PORTAL1 = { x: 20, y: 45 }, RIDDLE = { x: 10, y: 11 }, FALL = { x: 8, y: 7 };
 const KING_POS = { x: 23, y: 5 }, MOSS_POS = { x: 4, y: 10 }, CAT = { x: 35, y: 31 }, ROD = { x: 36, y: 14 };
 const DEW = [{ id: "d1", x: 13, y: 21 }, { id: "d2", x: 29, y: 19 }, { id: "d3", x: 26, y: 31 }];
 const HOUSES = [
@@ -549,7 +627,8 @@ const HOUSES = [
   { x0: 25, y0: 41, x1: 27, y1: 43, roof: "#c47f00", wall: "#efe3c4" },
 ];
 const WELL = { x: 22, y: 41 };
-const MAP = (() => {
+const MAP1 = (() => {
+  const MW = 40, MH = 48, START = START1, PORTAL = PORTAL1, NPCS = NPCS1;
   const M = Array.from({ length: MH }, () => Array(MW).fill("."));
   const set = (x, y, c) => { if (x >= 0 && y >= 0 && x < MW && y < MH) M[y][x] = c; };
   const rect = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, c); };
@@ -593,16 +672,32 @@ const MAP = (() => {
   set(RIDDLE.x, RIDDLE.y, "R");
   return M.map(r => r.join(""));
 })();
-function npcAt(x, y) { for (const [k, n] of Object.entries(NPCS)) if (n.x === x && n.y === y) return k; return null; }
-function tileAt(x, y) {
-  if (x < 0 || y < 0 || x >= MW || y >= MH) return "T";
-  const c = MAP[y][x];
+function tile1(c) {
   if (c === "h" && G.q.done.q1) return ",";
   if (c === "b" && G.q.riddle) return "B";
   if (c === "W" && G.q.stairs) return "E";
   return c;
 }
-const walkable = (x, y) => !"TC~ohbHwRW".includes(tileAt(x, y)) && !npcAt(x, y);
+/* ================= Étages et Haltes ================= */
+// Les étages s'enchaînent sans repos ; tous les 5 étages, une Halte (palier de repos) : soin, commerce, réparations.
+// G.lv = lieu en cours ("e1", "e2", "h5"…), G.ckpt = dernière Halte atteinte (0 = la Ville).
+const LEVELS = {};
+let LV, MW = 40, MH = 48, MAP = MAP1, START = START1, PORTAL = PORTAL1;
+const levelNum = (id = G.lv) => id ? parseInt(id.slice(1), 10) : 1;
+const isHalte = (id = G.lv) => !!id && id[0] === "h";
+function levelTitle(id) { const L = LEVELS[id]; if (L) return L.name; const n = levelNum(id); return id[0] === "h" ? `Halte du palier ${n}` : `Étage ${n}`; }
+function nextLevel(id) { const n = levelNum(id); return id[0] === "h" ? "e" + (n + 1) : n % 5 === 0 ? "h" + n : "e" + (n + 1); }
+function useLevel(id) {
+  LV = LEVELS[id] || LEVELS.e1;
+  ({ W: MW, H: MH, MAP, NPCS, QUESTS, START, PORTAL } = LV);
+}
+function npcAt(x, y) { for (const [k, n] of Object.entries(NPCS)) if (n.x === x && n.y === y) return k; return null; }
+function tileAt(x, y) {
+  if (x < 0 || y < 0 || x >= MW || y >= MH) return "T";
+  const c = MAP[y][x];
+  return LV.tile ? LV.tile(c, x, y) : c;
+}
+const walkable = (x, y) => !LV.block.includes(tileAt(x, y)) && !npcAt(x, y);
 
 /* ================= Étage 1 : rendu 3D (Three.js) ================= */
 const THREE_URL = window.QUEST_THREE_URL || "./vendor/three.module.min.js";
@@ -629,13 +724,14 @@ const DPR = Math.min(2, window.devicePixelRatio || 1);
 
 async function startFloor() {
   if (F) return;
-  $("#view").innerHTML = `<div id="stage"><div class="floor-loading" id="floor-loading">Chargement de la prairie…</div></div>
-    <div class="floor-name">Étage 1 · La prairie</div>
+  useLevel(G.lv || "e1");
+  $("#view").innerHTML = `<div id="stage"><div class="floor-loading" id="floor-loading">${esc(LV.loading)}</div></div>
+    <div class="floor-name">${esc(LV.name)}${isHalte(LV.id) ? ` · <span style="color:#9fe8b0">repos</span>` : ""}</div>
     <canvas id="minimap" title="Mini-carte : touche pour l'agrandir" aria-label="Mini-carte de l'étage"></canvas>
     <div class="zoom"><button class="btn small" data-act="zoom-in" aria-label="Rapprocher">+</button><button class="btn small" data-act="zoom-out" aria-label="Éloigner">−</button><button class="btn small" data-act="cam-reset" aria-label="Recentrer la caméra">⟲</button><button class="btn small" data-act="settings" aria-label="Réglages des déplacements">⚙</button></div>
     <div id="joy" hidden aria-label="Joystick de déplacement"><i></i></div>
     <button class="btn primary act-btn" id="act-btn" hidden></button>
-    <div class="floor-bar"><button class="btn" data-go="ville">Ville</button><div class="floor-msg" id="floor-msg"></div><button class="btn" data-act="journal-sheet">Journal</button></div>`;
+    <div class="floor-bar"><button class="btn" data-act="leave">Ville</button><div class="floor-msg" id="floor-msg"></div><button class="btn" data-act="bag">Sac</button><button class="btn" data-act="journal-sheet">Journal</button></div>`;
   const token = {}; F = { token, loading: true };
   try { THREE = THREE || await import(THREE_URL); }
   catch (e) { $("#floor-loading").textContent = "Impossible de charger la 3D. Vérifie ta connexion puis réessaie."; F = null; return; }
@@ -654,13 +750,26 @@ function stopFloor() {
   if (F.renderer) { F.renderer.dispose(); F.renderer.forceContextLoss?.(); }
   F = null;
 }
-function setMsg(m) { const el = $("#floor-msg"); if (el) el.textContent = m; }
+function setMsg(m) {
+  const el = $("#floor-msg"); if (!el) return;
+  el.textContent = m;
+  const bar = el.parentElement; if (bar) document.documentElement.style.setProperty("--barh", bar.offsetHeight + "px");
+}
 function floorHint() {
-  const q = G.q;
-  if (!Object.keys(q.acc).length) return (coarse() ? "Joystick ou toucher le sol pour marcher" : "ZQSD, flèches ou clic pour marcher, E pour parler") + " (⚙ pour choisir). Les « ! » dorés du hameau ont besoin d'aide.";
+  const q = QS();
+  const keys = (coarse() ? "Joystick ou toucher le sol pour marcher" : "ZQSD, flèches ou clic pour marcher, E pour parler") + " (⚙ pour choisir). ";
+  if (QUESTS.length && !Object.keys(q.acc).length) return keys + LV.firstTip;
+  if (!QUESTS.length && !F.tipped) { F.tipped = true; return keys + LV.firstTip; }
+  return LV.hint(q);
+}
+function curQuestHint(q) {
+  const cur = QUESTS.find(x => q.acc[x.id] && !q.done[x.id] && x.ok(q) && x.turnIn) || QUESTS.find(x => q.acc[x.id] && !q.done[x.id]);
+  if (!cur) return null;
+  return cur.ok(q) && cur.turnIn ? `Retourne voir ${NPCS[cur.giver].name.split(",")[0]}.` : cur.prog(q);
+}
+function hint1(q) {
   if (q.cat === 2) return "Pistache te suit. Ramène-le à Lila, au hameau.";
-  const cur = QUESTS.find(x => q.acc[x.id] && !q.done[x.id]);
-  if (cur) return cur.ok(q) && cur.turnIn ? `Retourne voir ${NPCS[cur.giver].name.split(",")[0]}.` : cur.prog(q);
+  const c = curQuestHint(q); if (c) return c;
   if (q.king && !q.stairs) return "« Derrière l'eau qui tombe, la falaise est creuse. »";
   if (q.stairs) return "L'escalier est derrière la cascade, au nord-ouest.";
   return "D'autres habitants ont peut-être besoin d'aide. Cherche les « ! ».";
@@ -670,24 +779,31 @@ function floorHint() {
 function mat(color, o = {}) { return stylize(new THREE.MeshStandardMaterial({ color, roughness: o.r ?? 0.85, metalness: 0, flatShading: o.flat ?? true, transparent: !!o.op, opacity: o.op ?? 1, emissive: o.em || 0x000000, emissiveIntensity: o.ei ?? 1 })); }
 function box(w, h, d, m) { const me = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); me.castShadow = true; me.receiveShadow = true; return me; }
 function at(o, x, y, z) { o.position.set(x, y, z); return o; }
+// Instances regroupées par blocs de 14 cases : la caméra et les ombres ne dessinent que les blocs visibles (léger sur téléphone)
 function instanced(geo, material, list, setup) {
-  if (!list.length) return null;
-  const im = new THREE.InstancedMesh(geo, material, list.length);
+  const grp = new THREE.Group();
+  if (!list.length) return grp;
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), e = new THREE.Euler(), c = new THREE.Color();
-  list.forEach((it, i) => {
-    const r = setup(it, i);
-    p.set(...r.p); e.set(0, r.ry || 0, 0); q.setFromEuler(e); s.set(...(r.s || [1, 1, 1]));
-    m.compose(p, q, s); im.setMatrixAt(i, m);
-    if (r.c) im.setColorAt(i, c.set(r.c));
-  });
-  im.castShadow = true; im.receiveShadow = true;
-  return im;
+  const chunks = new Map();
+  list.forEach((it, i) => { const r = setup(it, i), k = Math.floor(r.p[0] / 14) + "," + Math.floor(r.p[2] / 14); if (!chunks.has(k)) chunks.set(k, []); chunks.get(k).push(r); });
+  for (const rs0 of chunks.values()) {
+    const im = new THREE.InstancedMesh(geo, material, rs0.length);
+    rs0.forEach((r, i) => {
+      p.set(...r.p); e.set(0, r.ry || 0, 0); q.setFromEuler(e); s.set(...(r.s || [1, 1, 1]));
+      m.compose(p, q, s); im.setMatrixAt(i, m);
+      if (r.c) im.setColorAt(i, c.set(r.c));
+    });
+    im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere();
+    grp.add(im);
+  }
+  return grp;
 }
 let rs = 99; const rnd01 = () => (rs = (rs * 16807) % 2147483647) / 2147483647;
 
 /* ---- Relief : hauteur et couleur du sol, lissées entre les cases ---- */
-const TILE_BASE = c => c === "~" || c === "b" ? -0.55 : c === ":" || "sHwPRB".includes(c) ? 0 : c === "C" ? 0.05 : 0.06;
-const TILE_COL = c => c === "~" || c === "b" ? [0.42, 0.47, 0.32] : c === ":" ? [0.85, 0.75, 0.53] : "sHwR".includes(c) ? [0.8, 0.75, 0.6] : c === "P" ? [0.71, 0.73, 0.75] : c === "C" ? [0.5, 0.62, 0.36] : c === "," ? [0.42, 0.7, 0.3] : [0.49, 0.77, 0.35];
+const TILE_BASE = c => c === "~" || c === "b" || c === "x" ? -0.55 : c === "m" ? -0.07 : c === ":" || "sHwPRBSMKdAFNGr".includes(c) ? 0 : c === "C" ? 0.05 : 0.06;
+const TILE_COL0 = c => c === "~" || c === "b" || c === "x" ? [0.42, 0.47, 0.32] : c === ":" ? [0.85, 0.75, 0.53] : "sHwR".includes(c) ? [0.8, 0.75, 0.6] : c === "P" ? [0.71, 0.73, 0.75] : c === "C" ? [0.5, 0.62, 0.36] : c === "," ? [0.42, 0.7, 0.3] : c === "m" ? [0.34, 0.42, 0.24] : "SMKdAFNG".includes(c) ? [0.66, 0.64, 0.58] : [0.49, 0.77, 0.35];
+const TILE_COL = c => (LV.groundCol && LV.groundCol(c)) || TILE_COL0(c);
 const mapC = (x, y) => MAP[Math.max(0, Math.min(MH - 1, y))][Math.max(0, Math.min(MW - 1, x))];
 const bumps = (x, z) => Math.sin(x * 1.3 + z * 0.7) * 0.5 + Math.sin(x * 0.37 - z * 1.1) * 0.5 + Math.sin((x + z) * 2.3) * 0.2;
 function bilerp(x, z, f) {
@@ -697,9 +813,11 @@ function bilerp(x, z, f) {
   const mix = (p, q, t) => Array.isArray(p) ? p.map((v, i) => v + (q[i] - v) * t) : p + (q - p) * t;
   return mix(mix(a, b, sx), mix(c, d, sx), sz);
 }
-function heightAt(x, z) {
+function heightAt(x, z, raw) {
+  const tx = Math.round(x), tz = Math.round(z);
+  if (!raw && tx >= 0 && tz >= 0 && tx < MW && tz < MH && "bx".includes(MAP[tz][tx]) && tileAt(tx, tz) === "B") return 0.08; // sur un pont
   const base = bilerp(x, z, TILE_BASE);
-  const wild = bilerp(x, z, c => (".,fTo".includes(c) ? 1 : 0));
+  const wild = bilerp(x, z, c => (".,fTom".includes(c) ? 1 : 0));
   return base + wild * (bumps(x, z) * 0.06 + 0.04);
 }
 function groundColor(x, z, out) {
@@ -866,14 +984,14 @@ function makeClouds() {
     const a = (i / 16) * Math.PI * 2 + Math.sin(i * 7) * 0.2, d = 150 + (i % 3) * 18;
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex[i % 3], fog: false, depthWrite: false, transparent: true }));
     const k = 38 + (i * 13) % 26; sp.scale.set(k, k / 2, 1);
-    sp.position.set(20 + Math.cos(a) * d, 18 + (i * 11) % 22, 24 + Math.sin(a) * d); sp.userData.a = a; sp.userData.d = d;
+    sp.position.set(MW / 2 + Math.cos(a) * d, 18 + (i * 11) % 22, MH / 2 + Math.sin(a) * d); sp.userData.a = a; sp.userData.d = d;
     grp.add(sp);
   }
   return grp;
 }
 function makeCity() {
   // la cité haute autour de la prairie, et la grande Tour au nord
-  const grp = new THREE.Group(), cx = 20, cz = 24;
+  const grp = new THREE.Group(), cx = MW / 2, cz = MH / 2;
   let s0 = 777; const rr = () => (s0 = (s0 * 16807) % 2147483647) / 2147483647;
   const bodies = [], roofs = [], spires = [], wins = [];
   for (let i = 0; i < 150; i++) {
@@ -908,7 +1026,7 @@ function makeCity() {
   beam.position.y = y + 70; T.add(beam);
   T.position.set(cx + 10, -0.5, cz - 150); grp.add(T);
   // sol lointain
-  const far = new THREE.Mesh(new THREE.CircleGeometry(200, 48), mat("#6fae5a")); far.rotation.x = -Math.PI / 2; far.position.set(cx, -0.45, cz); far.receiveShadow = false; grp.add(far);
+  const far = new THREE.Mesh(new THREE.CircleGeometry(200, 48), mat(LV.farCol || "#6fae5a")); far.rotation.x = -Math.PI / 2; far.position.set(cx, -0.45, cz); far.receiveShadow = false; grp.add(far);
   grp.traverse(o => { if (o.isMesh) { o.castShadow = false; o.matrixAutoUpdate = o.isInstancedMesh ? o.matrixAutoUpdate : o.matrixAutoUpdate; } });
   return grp;
 }
@@ -1015,7 +1133,7 @@ function applyAmbiance() {
 function renderFrame(now) {
   const { renderer, scene, camera } = F, P = F.post, A = F.amb;
   F.sky.position.copy(camera.position);
-  if (F.clouds.visible) F.clouds.children.forEach(c => { const a = c.userData.a + now / 400000; c.position.x = 20 + Math.cos(a) * c.userData.d; c.position.z = 24 + Math.sin(a) * c.userData.d; });
+  if (F.clouds.visible) F.clouds.children.forEach(c => { const a = c.userData.a + now / 400000; c.position.x = MW / 2 + Math.cos(a) * c.userData.d; c.position.z = MH / 2 + Math.sin(a) * c.userData.d; });
   WIND.value = now / 1000;
   if (A.motes) { const mu = F.motes.material.uniforms; mu.t.value = now / 1000; mu.ctr.value.copy(F.camT); mu.px.value = DPR; }
   const ghost = () => { if (!C) { F.ghost.add(F.heroMesh); renderer.autoClear = false; renderer.render(F.ghost, camera); renderer.autoClear = true; scene.add(F.heroMesh); } };
@@ -1046,7 +1164,7 @@ function buildScene() {
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   stage.innerHTML = ""; stage.appendChild(renderer.domElement);
-  renderer.domElement.setAttribute("aria-label", "Carte 3D de l'étage 1. Touche le sol pour t'y rendre.");
+  renderer.domElement.setAttribute("aria-label", `Carte 3D : ${LV.name}. Touche le sol pour t'y rendre.`);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#bfe6f7");
   scene.fog = new THREE.Fog("#bfe6f7", 22, 46);
@@ -1059,9 +1177,10 @@ function buildScene() {
   scene.add(sun, sun.target);
   F.renderer = renderer; F.scene = scene; F.camera = camera; F.sun = sun;
   F.ray = new THREE.Raycaster(); F.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const P = LV.pal || {};
 
   // sol : un relief continu (couleurs et hauteurs lissées entre les cases)
-  const tiles = { cliff: [], tree: [], rock: [], tall: [], flower: [], hedge: [] };
+  const tiles = { cliff: [], tree: [], rock: [], tall: [], flower: [], marsh: [] };
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
     const c = MAP[y][x];
     if (c === "T") tiles.tree.push({ x, y });
@@ -1069,7 +1188,7 @@ function buildScene() {
     if (c === "o") tiles.rock.push({ x, y });
     if (c === ",") tiles.tall.push({ x, y });
     if (c === "f") tiles.flower.push({ x, y });
-    if (c === "h") tiles.hedge.push({ x, y });
+    if (c === "m") tiles.marsh.push({ x, y });
   }
   const SEG = 3;
   const gg = new THREE.PlaneGeometry(MW + 1, MH + 1, (MW + 1) * SEG, (MH + 1) * SEG);
@@ -1077,7 +1196,7 @@ function buildScene() {
   const pos = gg.attributes.position, cols = new Float32Array(pos.count * 3), col = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
-    pos.setY(i, heightAt(x, z));
+    pos.setY(i, heightAt(x, z, true));
     groundColor(x, z, col); cols[i * 3] = col.r; cols[i * 3 + 1] = col.g; cols[i * 3 + 2] = col.b;
   }
   gg.setAttribute("color", new THREE.BufferAttribute(cols, 3));
@@ -1087,46 +1206,47 @@ function buildScene() {
   const water = new THREE.Mesh(new THREE.PlaneGeometry(MW + 1, MH + 1, 1, 1), new THREE.MeshStandardMaterial({ color: "#4fa8de", roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.8 }));
   water.rotation.x = -Math.PI / 2; at(water, MW / 2 - 0.5, -0.14, MH / 2 - 0.5); scene.add(water); F.water = water;
   // falaises : colonnes de roche à facettes, coiffées d'herbe
-  const cliffH = t => 2.2 + ((t.x * 31 + t.y * 17) % 5) * 0.25 + (7 - t.y) * 0.15;
-  scene.add(instanced(new THREE.CylinderGeometry(0.62, 0.72, 1, 7, 3), mat("#8f8573"), tiles.cliff, t => ({ p: [t.x, cliffH(t) / 2 - 0.1, t.y], s: [1, cliffH(t), 1], ry: (t.x * 7 + t.y) % 6, c: ((t.x + t.y) % 2) ? "#958a76" : "#867b69" })));
-  scene.add(instanced(new THREE.CylinderGeometry(0.6, 0.66, 0.2, 9), mat("#6fb64e"), tiles.cliff, t => ({ p: [t.x, cliffH(t) - 0.02, t.y], ry: t.x })));
+  const cliffH = t => 2.2 + ((t.x * 31 + t.y * 17) % 5) * 0.25 + Math.max(0, 7 - t.y) * 0.15 + (P.cliffUp || 0);
+  scene.add(instanced(new THREE.CylinderGeometry(0.62, 0.72, 1, 7, 3), mat(P.rock || "#8f8573"), tiles.cliff, t => ({ p: [t.x, cliffH(t) / 2 - 0.1, t.y], s: [1, cliffH(t), 1], ry: (t.x * 7 + t.y) % 6, c: ((t.x + t.y) % 2) ? (P.rock2 || "#958a76") : (P.rock || "#867b69") })));
+  scene.add(instanced(new THREE.CylinderGeometry(0.6, 0.66, 0.2, 9), mat(P.cliffTop || "#6fb64e"), tiles.cliff, t => ({ p: [t.x, cliffH(t) - 0.02, t.y], ry: t.x })));
   // arbres : feuillus à trois houppiers, et quelques sapins
-  const TREE_G = ["#2f7a3b", "#3a8a42", "#2b6e36", "#418f45"];
+  const TREE_G = P.tree || ["#2f7a3b", "#3a8a42", "#2b6e36", "#418f45"], PINE = P.pine || ["#2b6e36", "#25632f"];
   const leafy = [], pines = [];
-  tiles.tree.forEach(t => ((t.x * 13 + t.y * 7) % 5 === 0 ? pines : leafy).push({ ...t, h: heightAt(t.x, t.y), s: 0.85 + rnd01() * 0.35, ry: rnd01() * 6 }));
-  scene.add(instanced(new THREE.CylinderGeometry(0.09, 0.15, 0.9, 8), mat("#6b4a2b", { flat: false }), [...leafy, ...pines], t => ({ p: [t.x, t.h + 0.45, t.y], s: [t.s, t.s, t.s] })));
-  const crown = new THREE.IcosahedronGeometry(0.5, 2);
+  tiles.tree.forEach(t => ((t.x * 13 + t.y * 7) % (P.pineEvery || 5) === 0 ? pines : leafy).push({ ...t, h: heightAt(t.x, t.y), s: 0.85 + rnd01() * 0.35, ry: rnd01() * 6 }));
+  scene.add(instanced(new THREE.CylinderGeometry(0.09, 0.15, 0.9, 8), mat(P.trunk || "#6b4a2b", { flat: false }), [...leafy, ...pines], t => ({ p: [t.x, t.h + 0.45, t.y], s: [t.s, t.s, t.s] })));
+  const crown = new THREE.IcosahedronGeometry(0.5, MW * MH > 2500 ? 1 : 2);
   [[0, 1.15, 0, 1], [0.24, 1.55, -0.1, 0.72], [-0.22, 1.42, 0.15, 0.68]].forEach(([ox, oy, oz, k], j) =>
-    scene.add(instanced(crown, addWind(mat("#ffffff", { flat: false, r: 0.9 }), 0.3), leafy, t => ({ p: [t.x + ox * t.s, t.h + oy * t.s, t.y + oz * t.s], s: [t.s * k, t.s * k * 1.05, t.s * k], ry: t.ry + j, c: TREE_G[(t.x + t.y * 3 + j) % 4] }))));
+    scene.add(instanced(crown, addWind(mat("#ffffff", { flat: false, r: 0.9 }), 0.3), leafy, t => ({ p: [t.x + ox * t.s, t.h + oy * t.s, t.y + oz * t.s], s: [t.s * k, t.s * k * 1.05, t.s * k], ry: t.ry + j, c: TREE_G[(t.x + t.y * 3 + j) % TREE_G.length] }))));
   [[0.95, 0.62, 0.75], [1.35, 0.48, 0.62], [1.7, 0.32, 0.5]].forEach(([oy, r, hh], j) =>
-    scene.add(instanced(new THREE.ConeGeometry(r, hh, 10), mat("#ffffff"), pines, t => ({ p: [t.x, t.h + oy * t.s, t.y], s: [t.s, t.s, t.s], ry: t.ry, c: j % 2 ? "#2b6e36" : "#25632f" }))));
+    scene.add(instanced(new THREE.ConeGeometry(r, hh, 10), mat("#ffffff"), pines, t => ({ p: [t.x, t.h + oy * t.s, t.y], s: [t.s, t.s, t.s], ry: t.ry, c: PINE[j % 2] }))));
   scene.add(instanced(new THREE.DodecahedronGeometry(0.36, 1), mat("#9aa0a6"), tiles.rock, t => ({ p: [t.x, heightAt(t.x, t.y) + 0.12, t.y], s: [1.15, 0.7, 1], ry: rnd01() * 3, c: rnd01() < .5 ? "#9aa0a6" : "#8c9399" })));
   const pebbles = []; tiles.rock.forEach(t => { for (let i = 0; i < 3; i++) pebbles.push({ x: t.x + (rnd01() - .5) * .9, y: t.y + (rnd01() - .5) * .9 }); });
   scene.add(instanced(new THREE.DodecahedronGeometry(0.1, 0), mat("#a3a9ae"), pebbles, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.03, b.y], ry: rnd01() * 3 })));
-  // herbes hautes, touffes d'herbe et fleurs
+  // herbes hautes, touffes d'herbe, roseaux du marais et fleurs (ou feuilles mortes)
+  const BL = P.blade || ["#4f9a37", "#62b046"];
   const blades = [];
   tiles.tall.forEach(t => { for (let i = 0; i < 12; i++) blades.push({ x: t.x + (rnd01() - .5) * .9, y: t.y + (rnd01() - .5) * .9, k: 0.8 + rnd01() * 0.8 }); });
+  tiles.marsh.forEach(t => { for (let i = 0; i < 5; i++) blades.push({ x: t.x + (rnd01() - .5) * .9, y: t.y + (rnd01() - .5) * .9, k: 1.1 + rnd01() * 0.9, reed: 1 }); });
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (".f".includes(MAP[y][x]) && rnd01() < 0.5) blades.push({ x: x + (rnd01() - .5) * .9, y: y + (rnd01() - .5) * .9, k: 0.45 });
-  scene.add(instanced(new THREE.ConeGeometry(0.045, 0.45, 4), addWind(mat("#4f9a37")), blades, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.2 * b.k, b.y], ry: rnd01() * 3, s: [1, b.k, 1], c: rnd01() < .5 ? "#4f9a37" : "#62b046" })));
+  scene.add(instanced(new THREE.ConeGeometry(0.045, 0.45, 4), addWind(mat(P.blade ? "#ffffff" : BL[0])), blades, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.2 * b.k, b.y], ry: rnd01() * 3, s: [1, b.k, 1], c: b.reed ? (P.reed || "#7a8a3a") : rnd01() < .5 ? BL[0] : BL[1] })));
   const petals = [];
   tiles.flower.forEach(t => { for (let i = 0; i < 6; i++) petals.push({ x: t.x + (rnd01() - .5) * .85, y: t.y + (rnd01() - .5) * .85 }); });
-  scene.add(instanced(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 3), addWind(mat("#3c8a45"), 0.7), petals, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.08, b.y] })));
-  scene.add(instanced(new THREE.IcosahedronGeometry(0.06, 1), addWind(mat("#ffffff"), 0.7), petals, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.17, b.y], s: [1, 0.55, 1], c: ["#f6f6f6", "#f08bb4", "#f5d04a", "#b9a2f0"][Math.floor(rnd01() * 4)] })));
+  if (P.leaves) { // feuilles mortes posées au sol
+    const lv = []; tiles.flower.forEach(t => { for (let i = 0; i < 14; i++) lv.push({ x: t.x + (rnd01() - .5) * .95, y: t.y + (rnd01() - .5) * .95 }); });
+    for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (".,:".includes(MAP[y][x]) && rnd01() < 0.35) lv.push({ x: x + (rnd01() - .5), y: y + (rnd01() - .5) });
+    const lg = new THREE.CircleGeometry(0.07, 5); lg.rotateX(-Math.PI / 2);
+    scene.add(instanced(lg, mat("#ffffff"), lv, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.015, b.y], ry: rnd01() * 6, s: [1, 1, 1.6], c: P.leaves[Math.floor(rnd01() * P.leaves.length)] })));
+  } else {
+    scene.add(instanced(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 3), addWind(mat("#3c8a45"), 0.7), petals, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.08, b.y] })));
+    scene.add(instanced(new THREE.IcosahedronGeometry(0.06, 1), addWind(mat("#ffffff"), 0.7), petals, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.17, b.y], s: [1, 0.55, 1], c: (P.petal || ["#f6f6f6", "#f08bb4", "#f5d04a", "#b9a2f0"])[Math.floor(rnd01() * 4)] })));
+  }
   // nénuphars
   const pads = []; for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (MAP[y][x] === "~" && rnd01() < 0.18) pads.push({ x: x + (rnd01() - .5) * .6, y: y + (rnd01() - .5) * .6 });
-  scene.add(instanced(new THREE.CylinderGeometry(0.16, 0.16, 0.02, 12), mat("#3f9a4a", { flat: false }), pads, b => ({ p: [b.x, -0.12, b.y], ry: rnd01() * 6 })));
-  // haie (disparaît après la première quête)
-  const hedge = new THREE.Group();
-  tiles.hedge.forEach(t => { hedge.add(at(box(1, 0.9, 0.8, mat("#2b6b33")), t.x, 0.45, t.y)); for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 1), mat("#3c8a45")); b.castShadow = true; hedge.add(at(b, t.x - 0.3 + i * 0.3, 0.9, t.y)); } });
-  scene.add(hedge); F.hedge = hedge;
-  // maisons, puits, portail
-  F.houses = HOUSES.map(h => { const g = makeHouse(h); g.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.transparent = true; o.material.userData.styl = false; stylize(o.material); } }); scene.add(g); return g; });
-  scene.add(makeWell());
+  scene.add(instanced(new THREE.CylinderGeometry(0.16, 0.16, 0.02, 12), mat(P.pad || "#3f9a4a", { flat: false }), pads, b => ({ p: [b.x, -0.12, b.y], ry: rnd01() * 6 })));
+  // maisons, portail de sortie, puis le décor propre à l'étage
+  F.houses = (LV.houses || []).map(h => { const g = makeHouse(h); g.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.transparent = true; o.material.userData.styl = false; stylize(o.material); } }); scene.add(g); return g; });
   scene.add(makePortal());
-  // pont, pierre à énigme, cascade
-  F.bridge = makeBridge(); scene.add(F.bridge);
-  scene.add(makeRiddleStone());
-  F.fall = makeFall(); scene.add(F.fall);
+  LV.build(scene);
   // personnages et objets
   F.heroMesh = makeHero(rankIdx()); scene.add(F.heroMesh);
   F.ghost = new THREE.Scene();
@@ -1137,16 +1257,9 @@ function buildScene() {
   F.mixers = [];
   loadHeroAsset().then(g => { if (g && F && F.scene === scene) upgradeHero(g); });
   F.npcs = {};
-  F.npcs.maelle = makePerson({ body: "#8e5bb5", skin: "#f1c7a0", hair: "#c4702e", hat: "#e2c26a", dress: true, staff: true });
-  F.npcs.bran = makePerson({ body: "#6b4a2b", skin: "#e0a77f", hair: "#3b2a1e", apron: "#3a3a3a", beard: true, bald: true, wide: 1.15, hammer: true });
-  F.npcs.lila = makePerson({ body: "#f08bb4", skin: "#f1c7a0", hair: "#f5d04a", dress: true, scale: 0.72, tails: true });
-  F.npcs.odon = makePerson({ body: "#3d7a6a", skin: "#e8b48f", hair: "#9aa0a6", hat: "#5b6d61", beard: true, rod: true });
-  Object.entries(F.npcs).forEach(([k, m]) => { const n = NPCS[k]; at(m, n.x, heightAt(n.x, n.y), n.y); m.rotation.y = k === "odon" ? -Math.PI / 2 : 0; m.add(F.npcs[k].mark = makeMark()); scene.add(m); });
-  for (const [k, p] of Object.entries(PERSOS_PNJ)) Promise.all([loadPerso(p), loadPerso("clips")]).then(([g, c]) => { if (g && c && F && F.scene === scene) upgradeNpc(k, g, c); });
-  for (const f of FIGURANTS) Promise.all([loadPerso(f.p), loadPerso("clips")]).then(([g, c]) => { if (g && c && F && F.scene === scene) addFigurant(f, g, c); });
-  F.dew = DEW.map(d => { const g = makeDew(); at(g, d.x, 0, d.y); scene.add(g); return { d, g }; });
-  F.rod = makeRodItem(); at(F.rod, ROD.x, heightAt(ROD.x, ROD.y) + 0.03, ROD.y); scene.add(F.rod);
-  F.cat = makeCat(); scene.add(F.cat);
+  Object.entries(NPCS).forEach(([k, n]) => { const m = makePerson(LV.looks[k] || {}); F.npcs[k] = m; at(m, n.x, heightAt(n.x, n.y), n.y); m.rotation.y = (LV.npcRot && LV.npcRot[k]) || 0; m.add(m.mark = makeMark()); scene.add(m); });
+  for (const [k, p] of Object.entries(LV.mixamo || {})) Promise.all([loadPerso(p), loadPerso("clips")]).then(([g, c]) => { if (g && c && F && F.scene === scene) upgradeNpc(k, g, c); });
+  for (const f of LV.figurants || []) Promise.all([loadPerso(f.p), loadPerso("clips")]).then(([g, c]) => { if (g && c && F && F.scene === scene) addFigurant(f, g, c); });
   F.sky = makeSky(); scene.add(F.sky); scene.background = null;
   F.clouds = makeClouds(); scene.add(F.clouds);
   F.city = makeCity(); scene.add(F.city);
@@ -1155,6 +1268,20 @@ function buildScene() {
   resizeRenderer();
   bindCamera(renderer.domElement);
   buildMinimap();
+}
+// Décor propre à l'étage 1 : haie, puits, pont, pierre à énigme, cascade, fleurs de rosée, canne, chat
+function build1(scene) {
+  const tiles = []; for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (MAP[y][x] === "h") tiles.push({ x, y });
+  const hedge = new THREE.Group();
+  tiles.forEach(t => { hedge.add(at(box(1, 0.9, 0.8, mat("#2b6b33")), t.x, 0.45, t.y)); for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 1), mat("#3c8a45")); b.castShadow = true; hedge.add(at(b, t.x - 0.3 + i * 0.3, 0.9, t.y)); } });
+  scene.add(hedge); F.hedge = hedge;
+  scene.add(makeWell());
+  F.bridge = makeBridge(); scene.add(F.bridge);
+  scene.add(makeRiddleStone());
+  F.fall = makeFall(); scene.add(F.fall);
+  F.dew = DEW.map(d => { const g = makeDew(); at(g, d.x, 0, d.y); scene.add(g); return { d, g }; });
+  F.rod = makeRodItem(); at(F.rod, ROD.x, heightAt(ROD.x, ROD.y) + 0.03, ROD.y); scene.add(F.rod);
+  F.cat = makeCat(); scene.add(F.cat);
 }
 function resizeRenderer() {
   if (!F || !F.renderer) return;
@@ -1498,23 +1625,35 @@ function makeCat() {
 }
 
 /* ---- Monstres ---- */
+// Cases libres d'une zone, pour y placer des monstres (évite les objets à ramasser)
+function freeSpots(x0, y0, x1, y1, avoid = []) {
+  const out = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (!walkable(x, y) || "fP".includes(tileAt(x, y))) continue;
+    if (avoid.some(d => d.x === x && d.y === y)) continue;
+    out.push({ x, y });
+  }
+  return out;
+}
+const pickSpot = free => free.length ? free.splice(Math.floor(Math.random() * free.length), 1)[0] : null;
 function spawnSlimes() {
   F.slimes.forEach(s => F.scene.remove(s.mesh));
-  const s = [], free = [];
-  for (let y = 13; y < 34; y++) for (let x = 9; x < MW; x++) {
-    if (!walkable(x, y) || "f".includes(tileAt(x, y))) continue;
-    if (DEW.some(d => d.x === x && d.y === y) || (x === CAT.x && y === CAT.y) || (x === ROD.x && y === ROD.y)) continue;
-    free.push({ x, y });
-  }
-  for (let i = 0; i < 12 && free.length; i++) {
-    const p = free.splice(Math.floor(Math.random() * free.length), 1)[0];
-    const kind = p.x >= 24 && Math.random() < 0.6 ? "blue" : "green";
-    s.push({ id: uid(), kind, x: p.x, y: p.y, rx: p.x, ry: p.y, next: performance.now() + rnd(600, 1600), cool: 0, ph: Math.random() * 6 });
-  }
-  if (G.q.done.q1 && !G.q.king) s.push({ id: "king", kind: "king", x: KING_POS.x, y: KING_POS.y, rx: KING_POS.x, ry: KING_POS.y, next: Infinity, cool: 0, ph: 0, big: true });
-  if (G.q.riddle && !G.q.moss) s.push({ id: "moss", kind: "moss", x: MOSS_POS.x, y: MOSS_POS.y, rx: MOSS_POS.x, ry: MOSS_POS.y, next: Infinity, cool: 0, ph: 0, big: true });
-  s.forEach(sl => { sl.mesh = makeSlime(sl.kind); if (F.amb && F.amb.toon) setToon(true, sl.mesh); F.scene.add(sl.mesh); });
+  const s = LV.spawn ? LV.spawn() : [];
+  s.forEach(sl => {
+    Object.assign(sl, { id: sl.id || uid(), rx: sl.x, ry: sl.y, hx: sl.x, hy: sl.y, next: sl.big ? Infinity : performance.now() + rnd(600, 1600), cool: 0, ph: Math.random() * 6 });
+    sl.mesh = makeFoe(sl.kind); if (F.amb && F.amb.toon) setToon(true, sl.mesh); F.scene.add(sl.mesh);
+  });
   F.slimes = s;
+}
+function spawn1() {
+  const s = [], free = freeSpots(9, 13, MW - 1, 33, [...DEW, CAT, ROD]);
+  for (let i = 0; i < 12 && free.length; i++) {
+    const p = pickSpot(free);
+    s.push({ kind: p.x >= 24 && Math.random() < 0.6 ? "blue" : "green", x: p.x, y: p.y });
+  }
+  if (G.q.done.q1 && !G.q.king) s.push({ id: "king", kind: "king", x: KING_POS.x, y: KING_POS.y, big: true });
+  if (G.q.riddle && !G.q.moss) s.push({ id: "moss", kind: "moss", x: MOSS_POS.x, y: MOSS_POS.y, big: true });
+  return s;
 }
 function removeSlime(sl) { if (!F) return; F.scene.remove(sl.mesh); F.slimes = F.slimes.filter(s => s !== sl); }
 
@@ -1524,6 +1663,7 @@ function loop(now) {
   const dt = Math.min(64, now - F.last); F.last = now;
   if (!sheetOpen()) update(dt, now);
   else { const b = $("#act-btn"); if (b && !b.hidden) { b.hidden = true; F.nearT = 0; } }
+  if (!F || F.loading) return;
   draw(now, dt);
   F.raf = requestAnimationFrame(loop);
 }
@@ -1559,11 +1699,11 @@ function update(dt, now) {
   // les slimes sautillent de case en case
   for (const s of F.slimes) {
     if (now < s.next || s.hold) continue;
-    s.next = now + rnd(800, 1900);
+    s.next = now + rnd(800, 1900) * (s.mesh.userData.gait ? 0.8 : 1);
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]].sort(() => Math.random() - .5);
     for (const [ax, ay] of dirs) {
       const nx = s.x + ax, ny = s.y + ay;
-      if (ny < 13 || ny > 33 || !walkable(nx, ny) || F.slimes.some(o => o.x === nx && o.y === ny)) continue;
+      if (!LV.roam(nx, ny, s) || !walkable(nx, ny) || F.slimes.some(o => o.x === nx && o.y === ny)) continue;
       if (Math.hypot(nx - h.rx, ny - h.ry) < 0.9) { if (now > s.cool) { s.x = nx; s.y = ny; } break; }
       s.x = nx; s.y = ny; break;
     }
@@ -1618,11 +1758,10 @@ function tileCheck() {
   h.x = tx; h.y = ty; arrive();
 }
 function reached() { if (F && F.pending) { const p = F.pending; F.pending = null; clearInput(); interact(p); } }
-const NEAR_WHAT = { R: "pierre", W: "cascade", h: "haie", b: "pont", H: "maison", w: "puits" };
 function nearTarget() {
   const h = F.hero; let best = null, bd = 1.35;
   for (let j = h.y - 2; j <= h.y + 2; j++) for (let i = h.x - 2; i <= h.x + 2; i++) {
-    const what = npcAt(i, j) || NEAR_WHAT[tileAt(i, j)];
+    const what = npcAt(i, j) || LV.near[tileAt(i, j)];
     if (!what) continue;
     const d = Math.hypot(i - h.rx, j - h.ry);
     if (d < bd) { bd = d; best = what; }
@@ -1631,7 +1770,7 @@ function nearTarget() {
 }
 function actLabel(w) {
   if (NPCS[w]) return "Parler à " + NPCS[w].name.split(",")[0];
-  return { pierre: "Lire la pierre", cascade: "Examiner la cascade", haie: "Examiner la haie", pont: "Examiner le pont", maison: "Frapper à la porte", puits: "Regarder le puits" }[w] || "Examiner";
+  return (LV.labels && LV.labels[w]) || { maison: "Frapper à la porte", pont: "Examiner le pont" }[w] || "Examiner";
 }
 function doInteract() { if (!F || !F.near || sheetOpen() || C) return; clearInput(); F.hero.path = []; interact(F.near); }
 function bindJoy(el) {
@@ -1665,8 +1804,17 @@ function settingsSheet() {
   $("#set-ok").onclick = closeSheet;
 }
 function arrive() {
-  const h = F.hero, q = G.q;
+  const h = F.hero;
   G.pos = { x: h.x, y: h.y };
+  LV.arrive && LV.arrive(h);
+  if (!F) return;
+  setMsg(floorHint());
+  if (tileAt(h.x, h.y) === "E") { h.path = []; F.pending = null; clearInput(); climb(); }
+  else if (h.x === PORTAL.x && h.y === PORTAL.y) { h.path = []; clearInput(); leaveTower(true); return; }
+  save();
+}
+function arrive1(h) {
+  const q = G.q;
   const dew = DEW.find(d => d.x === h.x && d.y === h.y);
   if (dew && dewVisible(dew)) {
     q.flowers.push(dew.id);
@@ -1676,18 +1824,32 @@ function arrive() {
   }
   if (h.x === ROD.x && h.y === ROD.y && !q.rod) { q.rod = 1; toast("Tu trouves une canne à pêche !"); if (!q.acc.q4) toast("Quelqu'un au bord du lac la cherche peut-être."); }
   if (h.x === CAT.x && h.y === CAT.y && q.cat === 1) { q.cat = 2; toast("Miaou ! Pistache te suit."); }
-  setMsg(floorHint());
-  if (tileAt(h.x, h.y) === "E") { h.path = []; F.pending = null; clearInput(); climb(); }
-  else if (h.x === PORTAL.x && h.y === PORTAL.y) { h.path = []; G.pos = null; save(); clearInput(); go("ville"); return; }
-  save();
 }
 const dewVisible = d => !G.q.flowers.includes(d.id) && (hasSkill(1) || Math.abs(d.x - F.hero.x) + Math.abs(d.y - F.hero.y) <= 4);
 function npcHasNews(k) {
+  const q = QS();
+  return QUESTS.some(x => x.giver === k && ((!q.acc[x.id] && (!x.need || x.need(q))) || (x.turnIn && q.acc[x.id] && !q.done[x.id] && x.ok(q))));
+}
+function follow(obj, h, k = 0.06) { // un compagnon suit le héros (chat, enfant…)
+  const t = F.trail[1] || F.trail[0] || h; obj.position.x += (t.x - obj.position.x) * k; obj.position.z += (t.y - obj.position.z) * k;
+  obj.position.y = heightAt(obj.position.x, obj.position.z); obj.rotation.y = Math.atan2(h.rx - obj.position.x, h.ry - obj.position.z);
+}
+function draw1(now, dt, h) {
   const q = G.q;
-  return QUESTS.some(x => x.giver === k && (!q.acc[x.id] || (x.turnIn && !q.done[x.id] && x.ok(q))));
+  F.dew.forEach(({ d, g }) => { g.visible = dewVisible(d); g.position.y = heightAt(d.x, d.y) + Math.sin(now / 400 + d.x) * 0.04; g.rotation.y = now / 1200; });
+  F.rod.visible = !q.rod;
+  F.cat.visible = q.cat >= 1;
+  if (q.cat === 1) { F.cat.position.set(CAT.x, heightAt(CAT.x, CAT.y), CAT.y); F.cat.rotation.y = Math.sin(now / 900); }
+  else if (q.cat === 2) follow(F.cat, h);
+  else if (q.cat === 3) { F.cat.position.set(NPCS.lila.x + 1, 0, NPCS.lila.y + 0.4); F.cat.rotation.y = -1.2; }
+  F.hedge.visible = !q.done.q1;
+  F.bridge.children.forEach(p => { if (p.userData.mid) p.visible = q.riddle; });
+  F.rune.material.opacity = q.riddle ? 0.15 : 0.6 + Math.sin(now / 400) * 0.3;
+  F.fallTex.offset.y = -now / 900;
+  F.fallSheet.material.opacity = q.stairs ? 0.45 : 0.9; F.cave.visible = q.stairs;
 }
 function draw(now, dt) {
-  const { renderer, scene, camera, sun } = F, h = F.hero, q = G.q;
+  const { renderer, scene, camera, sun } = F, h = F.hero;
   // héros
   const hm = F.heroMesh, u = hm.userData;
   const lg = F.lunge || 0;
@@ -1703,10 +1865,19 @@ function draw(now, dt) {
   for (const s of F.slimes) {
     const gx = s.hold ? s.hold.x : s.x, gy = s.hold ? s.hold.y : s.y;
     s.rx += (gx - s.rx) * Math.min(1, dt / 160); s.ry += (gy - s.ry) * Math.min(1, dt / 160);
-    const b = Math.abs(Math.sin(now / 260 + s.ph));
-    s.mesh.position.set(s.rx, heightAt(s.rx, s.ry) + b * (s.big ? 0.08 : 0.18), s.ry);
-    s.mesh.userData.body.scale.set(1 + (1 - b) * 0.12, 0.88 + b * 0.18, 1 + (1 - b) * 0.12);
-    const tx = h.rx - s.rx, tz = h.ry - s.ry; if (Math.hypot(tx, tz) < 6) s.mesh.rotation.y = Math.atan2(tx, tz);
+    const tx = h.rx - s.rx, tz = h.ry - s.ry, ud = s.mesh.userData;
+    if (ud.gait) { // bêtes à pattes : elles marchent au lieu de rebondir
+      const mx = gx - s.rx, mz = gy - s.ry, mv = Math.hypot(mx, mz) > 0.04;
+      s.mesh.position.set(s.rx, heightAt(s.rx, s.ry), s.ry);
+      ud.gait(now / 1000 + s.ph, mv);
+      const want = mv && !s.hold ? Math.atan2(mx, mz) : Math.hypot(tx, tz) < 6 ? Math.atan2(tx, tz) : s.mesh.rotation.y;
+      s.mesh.rotation.y += wrapA(want - s.mesh.rotation.y) * Math.min(1, dt / 120);
+    } else {
+      const b = Math.abs(Math.sin(now / 260 + s.ph));
+      s.mesh.position.set(s.rx, heightAt(s.rx, s.ry) + b * (s.big ? 0.08 : 0.18), s.ry);
+      ud.body.scale.set(1 + (1 - b) * 0.12, 0.88 + b * 0.18, 1 + (1 - b) * 0.12);
+      if (Math.hypot(tx, tz) < 6) s.mesh.rotation.y = Math.atan2(tx, tz);
+    }
   }
   // animations de combat
   F.anim = F.anim.filter(a => {
@@ -1719,17 +1890,7 @@ function draw(now, dt) {
     const tx = h.rx - NPCS[k].x, tz = h.ry - NPCS[k].y;
     if (Math.hypot(tx, tz) < 4) m.rotation.y += (Math.atan2(tx, tz) - m.rotation.y) * 0.08;
   }
-  F.dew.forEach(({ d, g }) => { g.visible = dewVisible(d); g.position.y = heightAt(d.x, d.y) + Math.sin(now / 400 + d.x) * 0.04; g.rotation.y = now / 1200; });
-  F.rod.visible = !q.rod;
-  F.cat.visible = q.cat >= 1;
-  if (q.cat === 1) { F.cat.position.set(CAT.x, heightAt(CAT.x, CAT.y), CAT.y); F.cat.rotation.y = Math.sin(now / 900); }
-  else if (q.cat === 2) { const t = F.trail[1] || F.trail[0] || h; F.cat.position.x += (t.x - F.cat.position.x) * 0.06; F.cat.position.z += (t.y - F.cat.position.z) * 0.06; F.cat.position.y = heightAt(F.cat.position.x, F.cat.position.z); F.cat.rotation.y = Math.atan2(h.rx - F.cat.position.x, h.ry - F.cat.position.z); }
-  else if (q.cat === 3) { F.cat.position.set(NPCS.lila.x + 1, 0, NPCS.lila.y + 0.4); F.cat.rotation.y = -1.2; }
-  F.hedge.visible = !q.done.q1;
-  F.bridge.children.forEach(p => { if (p.userData.mid) p.visible = q.riddle; });
-  F.rune.material.opacity = q.riddle ? 0.15 : 0.6 + Math.sin(now / 400) * 0.3;
-  F.fallTex.offset.y = -now / 900;
-  F.fallSheet.material.opacity = q.stairs ? 0.45 : 0.9; F.cave.visible = q.stairs;
+  LV.draw(now, dt, h);
   if (F.tapMark) { const k = 1 - (now - F.tapT) / 700; F.tapMark.visible = k > 0; F.tapMark.material.opacity = Math.max(0, k); F.tapMark.scale.setScalar(1 + (1 - Math.max(0, k)) * 0.6); }
   F.portalGlow.material.opacity = 0.55 + Math.sin(now / 500) * 0.2;
   if (F.water.material) F.water.material.color.setHSL(F.amb.water[0], F.amb.water[1], F.amb.water[2] + Math.sin(now / 1500) * 0.03);
@@ -1738,9 +1899,13 @@ function draw(now, dt) {
   if (C && C.sl) {
     // combat : vue de trois quarts derrière le héros, les deux combattants au centre
     const s = C.sl, mx = (h.rx + s.rx) / 2, mz = (h.ry + s.ry) / 2, ang = Math.atan2(s.rx - h.rx, s.ry - h.ry);
-    const a1 = ang + Math.PI - 1.05, a2 = ang + Math.PI + 1.05;
-    wy = Math.abs(wrapA(a1 - (F.cy ?? F.yaw))) < Math.abs(wrapA(a2 - (F.cy ?? F.yaw))) ? a1 : a2;
     wp = 0.5; wd = s.big ? 6.6 : 5.2;
+    if (!C.camYaw) { // on choisit l'angle où aucun arbre ne cache les combattants
+      const score = a => { let n = 0; for (let t = 0.8; t <= wd * Math.cos(wp); t += 0.5) { const c = mapC(Math.round(mx + Math.sin(a) * t), Math.round(mz + Math.cos(a) * t)); if ("TSHC".includes(c)) n += t < 3 ? 3 : 1; } return n; };
+      const cands = [-1.05, 1.05, -0.6, 0.6, -1.5, 1.5, 0].map(o => ang + Math.PI + o);
+      C.camYaw = cands.map(a => ({ a, s: score(a) + Math.abs(wrapA(a - (F.cy ?? F.yaw))) * 0.4 })).sort((p, q) => p.s - q.s)[0].a;
+    }
+    wy = C.camYaw;
     goal = new THREE.Vector3(mx, heightAt(mx, mz) + 0.45, mz);
   } else goal = new THREE.Vector3(h.rx, heightAt(h.rx, h.ry) + 0.5, h.ry);
   if (!!C !== !!F.wasC) { F.wasC = !!C; F.blend = now + 900; if (!C) F.yaw = F.cy; }
@@ -1822,11 +1987,13 @@ const MM = 3; // pixels par case
 function buildMinimap() {
   const base = document.createElement("canvas"); base.width = MW * MM; base.height = MH * MM;
   const x = base.getContext("2d");
-  const C2 = { T: "#2f6f3a", C: "#8a8070", "~": "#4f9fd6", b: "#4f9fd6", ":": "#d8c088", s: "#cbbf98", H: "#9a5a44", w: "#9aa3a8", P: "#a7e1ff", o: "#9aa0a6", R: "#8fd0ef", h: "#2b6b33", W: "#cdeefc", ",": "#5fae44", f: "#7cc35a", ".": "#7cc35a" };
-  for (let j = 0; j < MH; j++) for (let i = 0; i < MW; i++) { x.fillStyle = C2[MAP[j][i]] || "#7cc35a"; x.fillRect(i * MM, j * MM, MM, MM); }
+  const C2 = { T: "#2f6f3a", C: "#8a8070", "~": "#4f9fd6", b: "#4f9fd6", x: "#4f9fd6", ":": "#d8c088", s: "#cbbf98", H: "#9a5a44", w: "#9aa3a8", P: "#a7e1ff", o: "#9aa0a6", R: "#8fd0ef", h: "#2b6b33", W: "#cdeefc", ",": "#5fae44", f: "#7cc35a", ".": "#7cc35a",
+    m: "#56703f", S: "#8a8478", M: "#c8473a", K: "#d8a640", d: "#5e554c", r: "#7a3b2a", A: "#efe0b8", F: "#7fd4ff", N: "#c47f00", G: "#6b7177", ...(LV.mmCol || {}) };
+  for (let j = 0; j < MH; j++) for (let i = 0; i < MW; i++) { x.fillStyle = C2[MAP[j][i]] || C2["."]; x.fillRect(i * MM, j * MM, MM, MM); }
   F.mmBase = base;
 }
-function objective() {
+function objective() { return LV.objective ? LV.objective(QS()) : null; }
+function objective1() {
   const q = G.q, lila = NPCS.lila, odon = NPCS.odon, bran = NPCS.bran;
   if (!Object.keys(q.acc).length) return NPCS.maelle;
   if (q.cat === 2) return lila;
@@ -1843,17 +2010,15 @@ function objective() {
 }
 function drawMinimap(now) {
   const cv = $("#minimap"); if (!cv || !F.mmBase) return;
-  const big = cv.classList.contains("big"), S = big ? 6 : 3;
+  const big = cv.classList.contains("big"), S = (big ? 6 : 3) * (MW > 44 ? 0.75 : 1);
   const w = MW * S, h = MH * S;
   if (cv.width !== w * DPR) { cv.width = w * DPR; cv.height = h * DPR; cv.style.width = w + "px"; cv.style.height = h + "px"; }
   const x = cv.getContext("2d"); x.setTransform(DPR, 0, 0, DPR, 0, 0); x.imageSmoothingEnabled = false;
   x.drawImage(F.mmBase, 0, 0, w, h);
-  if (G.q.done.q1) { x.fillStyle = "#5fae44"; x.fillRect(21 * S, 12 * S, 3 * S, S); }
-  if (G.q.riddle) { x.fillStyle = "#a87344"; x.fillRect(7 * S, 12 * S, 2 * S, S); }
   const dot = (gx, gy, col, r = 1.6) => { x.beginPath(); x.arc((gx + 0.5) * S, (gy + 0.5) * S, r * S / 3 * 1.2, 0, Math.PI * 2); x.fillStyle = col; x.fill(); };
+  LV.mm && LV.mm(x, S, dot);
   F.slimes.forEach(s => dot(s.rx, s.ry, s.kind === "blue" ? "#1f5fa8" : s.big ? "#c8473a" : "#d9534f", s.big ? 2.6 : 1.4));
   Object.entries(NPCS).forEach(([k, n]) => dot(n.x, n.y, npcHasNews(k) ? "#f0c04a" : "#f2f2f2", 1.8));
-  if (hasSkill(1)) DEW.forEach(d => { if (!G.q.flowers.includes(d.id)) dot(d.x, d.y, "#bfe9ff", 1.4); });
   const o = objective();
   if (o) { const p = 1 + Math.sin(now / 250) * 0.3; x.strokeStyle = "#f0c04a"; x.lineWidth = 2; x.beginPath(); x.arc((o.x + 0.5) * S, (o.y + 0.5) * S, S * 1.6 * p, 0, Math.PI * 2); x.stroke(); }
   // le héros et la direction de la caméra
@@ -1871,13 +2036,14 @@ function routeTo(tx, ty, exact) {
   const big = F.slimes.find(s => s.big && Math.abs(s.x - tx) <= 1 && Math.abs(s.y - ty) <= 1);
   let what = npcAt(tx, ty);
   const c = tileAt(tx, ty);
-  if (!what) what = { R: "pierre", W: "cascade", h: "haie", b: "pont", H: "maison", w: "puits" }[c] || null;
+  if (!what) what = LV.near[c] || null;
   let goals;
   if (big) goals = [{ x: big.x, y: big.y }];
   else if (what) goals = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => ({ x: tx + a, y: ty + b })).filter(p => walkable(p.x, p.y));
   else if (walkable(tx, ty)) goals = [{ x: tx, y: ty }];
   else return;
-  if (what === "maison") { const hs = HOUSES.find(o => tx >= o.x0 && tx <= o.x1 && ty >= o.y0 && ty <= o.y1); goals = []; for (let x = hs.x0 - 1; x <= hs.x1 + 1; x++) for (let y = hs.y0 - 1; y <= hs.y1 + 1; y++) if (walkable(x, y)) goals.push({ x, y }); }
+  const hs = what === "maison" && (LV.houses || []).find(o => tx >= o.x0 && tx <= o.x1 && ty >= o.y0 && ty <= o.y1);
+  if (hs) { goals = []; for (let x = hs.x0 - 1; x <= hs.x1 + 1; x++) for (let y = hs.y0 - 1; y <= hs.y1 + 1; y++) if (walkable(x, y)) goals.push({ x, y }); }
   if (what && !big && Math.hypot(tx - h.rx, ty - h.ry) < 1.45) { h.path = []; interact(what); return; }
   const path = bfs({ x: h.x, y: h.y }, goals);
   if (!path) { toast("Impossible d'y aller d'ici"); return; }
@@ -1919,37 +2085,39 @@ const INTROS = {
   q5: "« Mon chat <b>Pistache</b> s'est sauvé dans les hautes herbes, au sud-est. Tu peux le retrouver ? Il est orange, on le voit de loin… enfin, normalement. »",
 };
 function completeQuest(id) {
-  const q = G.q; if (q.done[id]) return;
+  const q = QS(); if (q.done[id]) return;
   q.done[id] = true;
-  let txt = "";
-  if (id === "q1") { G.gold += 15; const it = makeItem(1); giveItem(it); q.acc.q7 = true; txt = `Maëlle te lance 15 or et <b class="rar-1">${esc(it.name)}</b>.</p><p>Au nord, un bruit de branches : <b>les haies s'écartent</b>. Le Roi des slimes t'attend.`; }
-  if (id === "q2") { G.gold += 10; G.potions += 2; txt = "Maëlle te donne 10 or et 2 infusions."; }
-  if (id === "q3") { G.gold += 10; const it = makeItem(2, "weapon"); giveItem(it); txt = `Bran plonge la gelée dans sa forge et te tend <b class="rar-2">${esc(it.name)}</b>, Épique. Et 10 or.`; }
-  if (id === "q4") { G.gold += 15; G.potions += 2; txt = "Odon serre sa canne comme un trésor : 15 or et 2 infusions pour toi."; }
-  if (id === "q5") { G.gold += 10; const it = makeItem(1, "charm"); giveItem(it); q.cat = 3; txt = `Lila serre Pistache dans ses bras et t'offre <b class="rar-1">${esc(it.name)}</b>. Et 10 or.`; }
+  const txt = LV.reward(id, q) || "", t = qById(id).title;
   save(); renderHUD();
-  info("Quête terminée", `<p><b>${esc(qById(id).title)}${/[?!]$/.test(qById(id).title) ? "" : "."}</b> ${txt}</p>`, "Continuer", () => { if (id === "q1" && F) spawnSlimes(); setMsg(floorHint()); });
+  info("Quête terminée", `<p><b>${esc(t)}${/[?!]$/.test(t) ? "" : "."}</b> ${txt}</p>`, "Continuer", () => { LV.afterComplete && LV.afterComplete(id); setMsg(floorHint()); });
+}
+function reward1(id, q) {
+  if (id === "q1") { G.gold += 15; const it = makeItem(1); giveItem(it); q.acc.q7 = true; return `Maëlle te lance 15 or et <b class="rar-1">${esc(it.name)}</b>.</p><p>Au nord, un bruit de branches : <b>les haies s'écartent</b>. Le Roi des slimes t'attend.`; }
+  if (id === "q2") { G.gold += 10; G.potions += 2; return "Maëlle te donne 10 or et 2 infusions."; }
+  if (id === "q3") { G.gold += 10; const it = makeItem(2, "weapon"); giveItem(it); return `Bran plonge la gelée dans sa forge et te tend <b class="rar-2">${esc(it.name)}</b>, Épique. Et 10 or.`; }
+  if (id === "q4") { G.gold += 15; G.potions += 2; return "Odon serre sa canne comme un trésor : 15 or et 2 infusions pour toi."; }
+  if (id === "q5") { G.gold += 10; const it = makeItem(1, "charm"); giveItem(it); q.cat = 3; return `Lila serre Pistache dans ses bras et t'offre <b class="rar-1">${esc(it.name)}</b>. Et 10 or.`; }
+  return "";
 }
 function talk(k) {
-  const q = G.q, n = NPCS[k];
+  if (LV.talk && LV.talk(k)) return; // marchands et gardiens des Haltes
+  const q = QS(), n = NPCS[k];
   const mine = QUESTS.filter(x => x.giver === k);
   const ready = mine.find(x => q.acc[x.id] && !q.done[x.id] && x.turnIn && x.ok(q));
   if (ready) { completeQuest(ready.id); return; }
-  const fresh = mine.filter(x => !q.acc[x.id]);
+  const fresh = mine.filter(x => !q.acc[x.id] && (!x.need || x.need(q)));
   if (fresh.length) {
     fresh.forEach(x => { q.acc[x.id] = true; });
-    if (k === "lila") q.cat = Math.max(q.cat, 1);
+    LV.onAccept && LV.onAccept(k, q);
     save();
-    info(n.name, `<p>${fresh.map(x => INTROS[x.id]).join("</p><p>")}</p><p class="muted">Combattre coûte 1 énergie. Explorer et cueillir sont gratuits.</p>`, "J'y vais", () => {
-      if (q.flowers.length >= 3 && q.acc.q2 && !q.done.q2) completeQuest("q2");
-      if (q.kills >= 5 && q.acc.q1 && !q.done.q1) completeQuest("q1");
+    info(n.name, `<p>${fresh.map(x => LV.intros[x.id]).join("</p><p>")}</p><p class="muted">Combattre coûte 1 énergie. Explorer et ramasser sont gratuits.</p>`, "J'y vais", () => {
+      LV.afterAccept && LV.afterAccept(q);
       setMsg(floorHint());
     });
     return;
   }
   const open = mine.filter(x => !q.done[x.id]);
-  const lines = { maelle: "« Les moutons te saluent. »", bran: "« Repasse quand tu veux, l'enclume est chaude. »", lila: "« Pistache dort au soleil. Merci encore ! »", odon: "« Ça mord, aujourd'hui. »" };
-  info(n.name, open.length ? `<p>« Courage ! »</p><ul class="qlist">${open.map(x => `<li><b>${esc(x.title)}</b><span class="muted">${x.prog(q)}</span></li>`).join("")}</ul>` : `<p>${lines[k]}</p>${q.king && !q.stairs && k === "maelle" ? "<p>« On raconte que la falaise derrière la cascade est creuse… »</p>" : ""}`);
+  info(n.name, open.length ? `<p>« Courage ! »</p><ul class="qlist">${open.map(x => `<li><b>${esc(x.title)}</b><span class="muted">${x.prog(q)}</span></li>`).join("")}</ul>` : `<p>${LV.idle[k] || "« Merci encore. »"}</p>${LV.idleExtra ? LV.idleExtra(k, q) : ""}`);
 }
 const RIDDLE_OPTS = ["Le vent", "La rivière", "Un slime"];
 function riddle() {
@@ -1968,8 +2136,11 @@ function riddle() {
   });
 }
 function interact(what) {
-  const q = G.q;
   if (NPCS[what]) return talk(what);
+  LV.interact(what);
+}
+function interact1(what) {
+  const q = G.q;
   if (what === "pierre") return riddle();
   if (what === "cascade") {
     if (q.king) { if (!q.stairs) { q.stairs = true; save(); } info("Derrière la cascade", `<p>Tu passes sous l'eau glacée : la falaise est creuse, et un <b>escalier</b> monte dans la roche !</p><p class="muted">Monter coûte ${hasSkill(5) ? 1 : 2} énergie. Avance vers la cascade pour grimper.</p>`, "Continuer", () => setMsg(floorHint())); }
@@ -1980,21 +2151,52 @@ function interact(what) {
   if (what === "maison") info("Une maison du hameau", "<p>Ça sent la soupe et le foin. Tu n'entres pas sans être invité.</p>");
   if (what === "puits") info("Le puits", "<p>Tu jettes un caillou : <i>plouf</i>, très loin. Un écho répond « Courage ! ».</p>");
 }
+/* ---- Monter, entrer, ressortir ---- */
 function climb() {
-  const cost = hasSkill(5) ? 1 : 2;
+  const cost = hasSkill(5) ? 1 : 2, nx = nextLevel(LV.id);
+  if (!LEVELS[nx]) { G.pos = F && F.trail[0] ? { ...F.trail[0] } : G.pos; G.soon = nx; save(); go("bientot"); return; }
   if (G.energy < cost) { info("L'escalier", `<p>Il te faut ${cost} énergie pour monter. Termine un cycle de focus pour en regagner.</p>`); return; }
-  sheet(`<h2>Monter à l'étage 2 ?</h2><p>Coûte ${cost} énergie.</p><div class="cacts"><button class="btn primary" id="cl-yes">Monter</button><button class="btn" id="cl-no">Pas maintenant</button></div>`);
-  $("#cl-yes").onclick = () => { G.energy -= cost; G.q.floor2 = true; save(); closeSheet(); go("etage2"); };
+  const halte = isHalte(nx);
+  sheet(`<h2>Monter : ${esc(levelTitle(nx))} ?</h2><p>Coûte ${cost} énergie.</p>
+    <p class="muted">${halte ? "Une Halte t'attend : soin, marchands, forge. Ta montée y sera sauvegardée." : "Pas de repos entre deux Haltes : tes PV et l'usure de ton équipement restent tels quels."}</p>
+    <div class="cacts"><button class="btn primary" id="cl-yes">Monter</button><button class="btn" id="cl-no">Pas maintenant</button></div>`);
+  $("#cl-yes").onclick = () => { G.energy -= cost; if (LV.id === "e1") G.q.floor2 = true; enterLevel(nx); };
   $("#cl-no").onclick = closeSheet;
+}
+function enterLevel(id) {
+  if (!LEVELS[id]) { G.soon = id; save(); closeSheet(); go("bientot"); return; }
+  if (id !== G.lv) { G.lv = id; G.pos = null; }
+  G.best = Math.max(G.best || 1, levelNum(id));
+  if (isHalte(id)) G.ckpt = Math.max(G.ckpt || 0, levelNum(id));
+  save(); closeSheet(); stopFloor(); C = null;
+  go("etage");
+  if (isHalte(id)) setTimeout(() => toast(`${levelTitle(id)} : ta montée est sauvegardée ici`), 600);
+}
+const restartTxt = () => G.ckpt ? `de la Halte du palier ${G.ckpt}` : "de l'étage 1";
+function leaveTower(fromPortal) {
+  const out = () => { G.lv = null; G.pos = null; G.regen = false; save(); closeSheet(); go("ville"); };
+  if (!F || LV.id === "e1" || isHalte(LV.id)) { out(); return; }
+  sheet(`<h2>Quitter la Tour ?</h2><p>Ta montée s'arrête ici. La prochaine fois, tu repartiras ${restartTxt()}.</p>
+    <p class="muted">Les quêtes accomplies et ton équipement restent acquis.</p>
+    <div class="cacts"><button class="btn primary" id="lv-stay">Continuer la montée</button><button class="btn" id="lv-out">Redescendre en ville</button></div>`);
+  $("#lv-out").onclick = out;
+  $("#lv-stay").onclick = () => { closeSheet(); if (fromPortal && F) { const h = F.hero; h.rx = h.x = START.x; h.ry = h.y = START.y; G.pos = { ...START }; save(); } };
 }
 
 /* ================= Combat au tour par tour ================= */
+const GOO = "se dissout en gelée";
 const FOES = {
-  green: { name: "Slime vert", hp: 7, atk: 2, gold: [2, 5], drop: 30, cost: 1 },
-  blue:  { name: "Slime bleu", hp: 11, atk: 3, gold: [4, 7], drop: 40, cost: 1 },
-  moss:  { name: "Grand slime moussu", hp: 30, atk: 4, gold: [20, 20], drop: 100, cost: 2 },
-  king:  { name: "Roi des slimes", hp: 45, atk: 5, gold: [25, 25], drop: 100, cost: 2 },
+  green: { name: "Slime vert", hp: 7, atk: 2, gold: [2, 5], drop: 30, cost: 1, die: GOO },
+  blue:  { name: "Slime bleu", hp: 11, atk: 3, gold: [4, 7], drop: 40, cost: 1, die: GOO },
+  moss:  { name: "Grand slime moussu", hp: 30, atk: 4, gold: [20, 20], drop: 100, cost: 2, die: GOO, special: { name: "Spores", dmg: 7 } },
+  king:  { name: "Roi des slimes", hp: 45, atk: 5, gold: [25, 25], drop: 100, cost: 2, die: GOO, special: { name: "Écrasement", dmg: 9 } },
+  champi: { name: "Champignon sauteur", hp: 13, atk: 3, gold: [5, 9], drop: 35, cost: 1, die: "s'effondre dans un nuage de spores", hit: "Coup de chapeau", model: () => makeShroom() },
+  loup:  { name: "Loup gris", hp: 16, atk: 4, gold: [6, 10], drop: 40, cost: 1, die: "s'enfuit en boitant dans les fougères", hit: "Morsure", model: () => makeWolf("#8d8f93", "#5d6066") },
+  loupn: { name: "Loup noir", hp: 22, atk: 5, gold: [8, 13], drop: 50, cost: 1, die: "disparaît dans l'ombre des arbres", hit: "Morsure", model: () => makeWolf("#3a3640", "#22202a", true) },
+  sylvain: { name: "Sylvain, le chêne noueux", hp: 55, atk: 5, gold: [35, 35], drop: 100, cost: 2, die: "se fige et redevient un simple vieux chêne", hit: "Coup de branche", special: { name: "Racines", dmg: 10 }, model: () => makeTreant() },
+  cerf:  { name: "Le Grand Cerf d'automne", hp: 75, atk: 6, gold: [50, 50], drop: 100, cost: 2, die: "s'incline, puis s'efface dans une pluie de feuilles d'or", hit: "Coup de bois", special: { name: "Charge", dmg: 12 }, model: () => makeStag() },
 };
+const makeFoe = kind => FOES[kind].model ? FOES[kind].model() : makeSlime(kind);
 let C = null;
 function meet(sl) {
   const f = FOES[sl.kind];
@@ -2010,14 +2212,14 @@ function meet(sl) {
   clearInput();
   { const h = F.hero; let dx = sl.rx - h.rx, dy = sl.ry - h.ry; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
     const gap = sl.big ? 1.6 : 1.15; sl.hold = { x: h.rx + dx * gap, y: h.ry + dy * gap }; h.rot = Math.atan2(dx, dy); }
-  C = { sl, f, hp: f.hp, max: f.hp, turn: 0, streak: 0, used: {}, guard: false, log: [`${f.name} surgit !`], busy: false };
+  C = { sl, f, hp: f.hp, max: f.hp, turn: 0, streak: 0, used: {}, guard: false, log: [`${f.name} surgit !`], busy: false, hit: false, hurt: false };
   C.intent = nextIntent();
   renderCombat();
 }
 function nextIntent() {
-  if (C.f.cost > 1 && (C.turn + 1) % 3 === 0) return C.sl.kind === "king" ? { name: "Écrasement", dmg: 9 } : { name: "Spores", dmg: 7 };
+  if (C.f.special && (C.turn + 1) % 3 === 0) return { ...C.f.special };
   if (Math.random() < 0.2) return { name: "Bond", dmg: C.f.atk + 2 };
-  return { name: "Choc", dmg: C.f.atk };
+  return { name: C.f.hit || "Choc", dmg: C.f.atk };
 }
 function renderCombat() {
   const mh = maxHp();
@@ -2034,6 +2236,7 @@ function renderCombat() {
       <button class="btn primary" data-c="atk" data-focus>Attaquer${hasSkill(0) && C.streak ? ` (+${Math.min(2, C.streak)})` : ""}</button>
       ${sk.join("")}
       <button class="btn" data-c="potion" ${G.potions ? "" : "disabled"}>Infusion (${G.potions})</button>
+      ${G.elixirs ? `<button class="btn" data-c="elixir">Élixir (${G.elixirs})</button>` : ""}
       <button class="btn ghost" data-c="fuir">Fuir</button>
     </div>`, { clear: true });
   document.querySelectorAll("[data-c]").forEach(b => b.onclick = () => combatAct(b.dataset.c));
@@ -2081,20 +2284,25 @@ function combatAct(a) {
   if (C.busy) return;
   let dmg = 0;
   if (a === "atk") {
+    C.hit = true;
     dmg = Math.max(1, atk() + (hasSkill(0) ? Math.min(2, C.streak) : 0) + rnd(-1, 1));
     C.streak++; C.log.push(`Tu frappes : <b>${dmg}</b> dégâts.`);
   } else if (a === "precis") {
+    C.hit = true;
     dmg = Math.max(2, (atk() + rnd(0, 1)) * 2); C.used.precis = true; C.streak = 0; C.log.push(`Coup précis ! <b>${dmg}</b> dégâts.`);
   } else if (a === "garde") {
     C.guard = true; C.used.garde = true; C.streak = 0; C.log.push("Tu lèves ta garde.");
   } else if (a === "potion") {
     G.potions--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + POTION_HEAL); C.streak = 0; C.log.push(`Infusion : +${G.hp - before} PV.`);
+  } else if (a === "elixir") {
+    G.elixirs--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + ELIXIR_HEAL); C.streak = 0; C.log.push(`Élixir : +${G.hp - before} PV.`);
   } else if (a === "fuir") {
     if (C.f.cost > 1 && !hasSkill(5) ? Math.random() < 0.4 : (hasSkill(5) || Math.random() < 0.6)) {
       C.sl.cool = performance.now() + 3000; F.hero.path = []; C.sl.hold = null; pushBack(C.sl);
-      C = null; save(); closeSheet(); toast("Fuite réussie"); return;
+      wearAfterFight(C.hit, C.hurt, false);
+      C = null; save(); closeSheet(); renderHUD(); toast("Fuite réussie"); return;
     }
-    C.streak = 0; C.log.push("Le slime te bloque le passage !");
+    C.streak = 0; C.log.push(`${esc(C.f.name)} te bloque le passage !`);
   }
   C.hp = Math.max(0, C.hp - dmg);
   C.busy = true; renderCombat(); if (dmg) heroAttackFx(dmg);
@@ -2105,50 +2313,660 @@ function combatAct(a) {
     const it = C.intent;
     const taken = C.guard ? 0 : Math.max(1, it.dmg - def());
     C.guard = false;
-    G.hp = Math.max(0, G.hp - taken);
+    G.hp = Math.max(0, G.hp - taken); if (taken) C.hurt = true;
     C.log.push(taken ? `${esc(C.f.name)} : ${it.name}, <b>${taken}</b> dégâts.` : `${it.name} bloqué par ta garde !`);
     foeAttackFx(taken);
     C.intent = nextIntent(); C.busy = false;
+    if (G.hp <= 0) C.busy = true;
     save(); renderCombat(); renderHUD();
     if (G.hp <= 0) setTimeout(defeat, 500);
   }, 700);
 }
 function victory() {
-  const { sl, f } = C; C = null;
+  if (!C) return;
+  const { sl, f, hit, hurt } = C; C = null;
   if (F && F.heroAnim) heroPlay("power", true, 0.15);
   removeSlime(sl);
-  const q = G.q;
   const gold = rnd(f.gold[0], f.gold[1]); G.gold += gold;
-  let loot = null, extra = "";
+  let loot = null;
   if (Math.random() * 100 < f.drop + (G.rested ? 15 : 0)) { loot = makeItem(rollRarity(f.cost > 1)); giveItem(loot); }
-  if (sl.kind === "king") { q.king = true; q.done.q7 = true; todoUnlock("boss"); extra = `<p class="hint">Le Roi laisse tomber un bout de carte : « Derrière l'eau qui tombe, la falaise est creuse. »</p>`; }
-  else if (sl.kind === "moss") { q.moss = true; q.done.q6 = true; extra = `<p><b>Quête terminée : Le bois moussu.</b></p>`; }
-  else {
-    q.kills++;
-    if (sl.kind === "blue" && q.acc.q3 && q.jelly < 3) { q.jelly++; extra = `<p>Tu ramasses une <b>gelée bleue</b> (${q.jelly} / 3).</p>`; }
-  }
+  wearAfterFight(hit, hurt, f.cost > 1);
+  let regen = 0;
+  if (G.regen && G.hp < maxHp()) { const b = G.hp; G.hp = Math.min(maxHp(), G.hp + Math.max(3, Math.round(maxHp() * 0.1))); regen = G.hp - b; }
+  const extra = (LV.onKill && LV.onKill(sl)) || "";
   save(); renderHUD();
   sheet(`<h2>Victoire !</h2>
-    <p>${esc(f.name)} se dissout en gelée. <b class="num">+${gold} or</b>.</p>
-    ${loot ? `<div class="loot"><span class="label">Butin${G.rested ? " · Reposé" : ""}</span><b class="rar-${loot.rarity}">${esc(loot.name)}</b><span class="muted">${RARITY[loot.rarity]} · ${statText(loot)}${G.equip[loot.slot] === loot.id ? " · équipé" : " · à la Forge"}</span></div>` : ""}
+    <p>${esc(f.name)} ${f.die}. <b class="num">+${gold} or</b>.${regen ? ` <span style="color:var(--accent)">Régénération : +${regen} PV.</span>` : ""}</p>
+    ${loot ? `<div class="loot"><span class="label">Butin${G.rested ? " · Reposé" : ""}</span><b class="rar-${loot.rarity}">${esc(loot.name)}</b><span class="muted">${RARITY[loot.rarity]} · ${statText(loot)}${G.equip[loot.slot] === loot.id ? " · équipé" : " · dans ton sac"}</span></div>` : ""}
     ${extra}<button class="btn primary" id="v-ok" data-focus>Continuer</button>`);
   $("#v-ok").onclick = () => {
     closeSheet();
-    if (q.acc.q1 && !q.done.q1 && q.kills >= 5) completeQuest("q1");
+    LV.afterKill && LV.afterKill(QS());
     setMsg(floorHint());
   };
 }
+function kill1(sl) {
+  const q = G.q;
+  if (sl.kind === "king") { q.king = true; q.done.q7 = true; todoUnlock("boss"); return `<p class="hint">Le Roi laisse tomber un bout de carte : « Derrière l'eau qui tombe, la falaise est creuse. »</p>`; }
+  if (sl.kind === "moss") { q.moss = true; q.done.q6 = true; return `<p><b>Quête terminée : Le bois moussu.</b></p>`; }
+  q.kills++;
+  if (sl.kind === "blue" && q.acc.q3 && q.jelly < 3) { q.jelly++; return `<p>Tu ramasses une <b>gelée bleue</b> (${q.jelly} / 3).</p>`; }
+  return "";
+}
 function defeat() {
-  C = null;
+  if (!C) return;
+  const { hit, hurt, f } = C; C = null;
+  wearAfterFight(hit, hurt, f.cost > 1);
   if (F && F.heroAnim) { heroPlay("death", true, 0.1); F.heroAnim.lock = true; }
-  G.hp = Math.ceil(maxHp() / 2); G.pos = null; save();
-  info("K.O.", `<p>Tu te réveilles à la Taverne, avec la moitié de tes PV. Le tavernier hoche la tête : « Tout le monde tombe, à la prairie. »</p>`, "Continuer", () => go("ville"));
+  const deep = levelNum() > 1 && !isHalte();
+  G.hp = Math.ceil(maxHp() / 2); G.pos = null; G.lv = null; G.regen = false; save();
+  info("K.O.", `<p>Tu te réveilles à la Taverne, avec la moitié de tes PV. Le tavernier hoche la tête : « Tout le monde tombe, dans la Tour. »</p>${deep ? `<p class="muted">Ta montée s'arrête : tu repartiras ${restartTxt()}. Tes quêtes et ton équipement restent acquis.</p>` : ""}`, "Continuer", () => go("ville"));
 }
 function journalSheet() {
-  const q = G.q;
-  sheet(`<h2>Journal</h2>${questLines()}${q.king && !q.stairs ? `<div class="hint">« Derrière l'eau qui tombe, la falaise est creuse. »</div>` : ""}<button class="btn primary" id="j-ok" data-focus>Fermer</button>`, { dismiss: true });
+  sheet(`<h2>Journal · ${esc(LV.name)}</h2>${questLines()}${LV.journalExtra ? LV.journalExtra(QS()) : ""}<button class="btn primary" id="j-ok" data-focus>Fermer</button>`, { dismiss: true });
   $("#j-ok").onclick = closeSheet;
 }
+// Le sac : équipement, usure, soins et trousses, utilisables partout hors combat
+function bagSheet() {
+  const mh = maxHp(), hp = Math.min(G.hp ?? mh, mh);
+  sheet(`<h2>Sac</h2>
+    <div class="statline"><span><span class="label">PV</span><br><b class="num">${hp} / ${mh}</b></span><span><span class="label">Attaque</span><br><b class="num">${atk()}</b></span><span><span class="label">Défense</span><br><b class="num">${def()}</b></span>${G.regen ? `<span><span class="label">Bénédiction</span><br><b style="color:var(--accent)">Régénération</b></span>` : ""}</div>
+    <div class="cacts">
+      <button class="btn" data-act="use-potion" ${G.potions && hp < mh ? "" : "disabled"}>Infusion +${POTION_HEAL} PV (${G.potions})</button>
+      <button class="btn" data-act="use-elixir" ${G.elixirs && hp < mh ? "" : "disabled"}>Élixir +${ELIXIR_HEAL} PV (${G.elixirs})</button>
+      <button class="btn" data-act="use-kit" ${G.kits && G.items.some(i => G.equip[i.slot] === i.id && i.dur < i.durMax) ? "" : "disabled"}>Trousse : +${KIT_FIX} de durabilité (${G.kits})</button>
+    </div>
+    ${itemsHtml({ bag: 1 })}
+    <button class="btn primary" id="bag-ok" data-focus>Fermer</button>`, { dismiss: true, refresh: bagSheet });
+  $("#bag-ok").onclick = closeSheet;
+}
+
+/* ================= Définition des lieux de la Tour ================= */
+LEVELS.e1 = {
+  id: "e1", name: "Étage 1 · La prairie", loading: "Chargement de la prairie…",
+  W: 40, H: 48, MAP: MAP1, NPCS: NPCS1, QUESTS: QUESTS1, START: START1, PORTAL: PORTAL1, houses: HOUSES,
+  qs: () => G.q, block: "TC~ohbHwRW", tile: tile1,
+  near: { R: "pierre", W: "cascade", h: "haie", b: "pont", H: "maison", w: "puits" },
+  labels: { pierre: "Lire la pierre", cascade: "Examiner la cascade", haie: "Examiner la haie", pont: "Examiner le pont", maison: "Frapper à la porte", puits: "Regarder le puits" },
+  firstHint: "Le hameau est juste après l'entrée de l'étage 1. Les « ! » dorés signalent quelqu'un qui a besoin d'aide.",
+  firstTip: "Les « ! » dorés du hameau ont besoin d'aide.",
+  intros: INTROS,
+  idle: { maelle: "« Les moutons te saluent. »", bran: "« Repasse quand tu veux, l'enclume est chaude. »", lila: "« Pistache dort au soleil. Merci encore ! »", odon: "« Ça mord, aujourd'hui. »" },
+  idleExtra: (k, q) => q.king && !q.stairs && k === "maelle" ? "<p>« On raconte que la falaise derrière la cascade est creuse… »</p>" : "",
+  onAccept: (k, q) => { if (k === "lila") q.cat = Math.max(q.cat, 1); },
+  afterAccept: q => { if (q.flowers.length >= 3 && q.acc.q2 && !q.done.q2) completeQuest("q2"); if (q.kills >= 5 && q.acc.q1 && !q.done.q1) completeQuest("q1"); },
+  reward: reward1, afterComplete: id => { if (id === "q1" && F) spawnSlimes(); },
+  onKill: kill1, afterKill: q => { if (q.acc.q1 && !q.done.q1 && q.kills >= 5) completeQuest("q1"); },
+  build: build1, draw: draw1, arrive: arrive1, interact: interact1, objective: objective1, spawn: spawn1, roam: (x, y) => y >= 13 && y <= 33, hint: hint1,
+  mm: (x, S, dot) => {
+    if (G.q.done.q1) { x.fillStyle = "#5fae44"; x.fillRect(21 * S, 12 * S, 3 * S, S); }
+    if (G.q.riddle) { x.fillStyle = "#a87344"; x.fillRect(7 * S, 12 * S, 2 * S, S); }
+    if (hasSkill(1)) DEW.forEach(d => { if (!G.q.flowers.includes(d.id)) dot(d.x, d.y, "#bfe9ff", 1.4); });
+  },
+  journalExtra: q => q.king && !q.stairs ? `<div class="hint">« Derrière l'eau qui tombe, la falaise est creuse. »</div>` : "",
+  looks: {
+    maelle: { body: "#8e5bb5", skin: "#f1c7a0", hair: "#c4702e", hat: "#e2c26a", dress: true, staff: true },
+    bran: { body: "#6b4a2b", skin: "#e0a77f", hair: "#3b2a1e", apron: "#3a3a3a", beard: true, bald: true, wide: 1.15, hammer: true },
+    lila: { body: "#f08bb4", skin: "#f1c7a0", hair: "#f5d04a", dress: true, scale: 0.72, tails: true },
+    odon: { body: "#3d7a6a", skin: "#e8b48f", hair: "#9aa0a6", hat: "#5b6d61", beard: true, rod: true },
+  },
+  npcRot: { odon: -Math.PI / 2 }, mixamo: { maelle: "paysanne" }, figurants: FIGURANTS,
+};
+
+/* ---------- Étage 2 : la forêt d'automne ---------- */
+// 56 × 64 cases : camp des bûcherons (sud), marais (ouest), ruines (est), rivière, forêt du nord, clairière du Grand Cerf.
+const NPCS2 = {
+  gaspard: { name: "Gaspard, le bûcheron", x: 25, y: 55 },
+  nina:    { name: "Nina, l'herboriste", x: 31, y: 55 },
+  fernand: { name: "Fernand, le passeur", x: 26, y: 34 },
+  seve:    { name: "Sève, la dryade", x: 8, y: 38 },
+  tobias:  { name: "Tobias, l'ermite", x: 44, y: 43 },
+};
+const E2 = { start: { x: 28, y: 59 }, portal: { x: 28, y: 61 }, fire: { x: 28, y: 56 }, emile: { x: 9, y: 21 }, sylvain: { x: 6, y: 45 }, cerf: { x: 28, y: 8 }, arch: { x: 28, y: 3 }, chest: { x: 50, y: 38 }, swamp: { x: 9, y: 42 },
+  braziers: [{ x: 43, y: 38 }, { x: 50, y: 45 }, { x: 43, y: 46 }] };
+const PICK2 = [
+  ...[[20, 40], [35, 38], [24, 46], [37, 47]].map(([x, y], i) => ({ id: "log" + i, k: "log", x, y })),
+  ...[[4, 36], [12, 40], [5, 48], [14, 46], [11, 35]].map(([x, y], i) => ({ id: "lune" + i, k: "lune", x, y })),
+  ...[[45, 39], [50, 47], [42, 47]].map(([x, y], i) => ({ id: "page" + i, k: "page", x, y })),
+  ...[[8, 33], [19, 33], [44, 33]].map(([x, y], i) => ({ id: "lierre" + i, k: "lierre", x, y })),
+];
+const PICK_INFO = {
+  log: { name: "Bûche de chêne doré", n: 4, q: "a2", who: "Un bûcheron en voudrait sûrement." },
+  lune: { name: "Champignon de lune", n: 5, q: "a3", who: "Une herboriste saurait quoi en faire." },
+  page: { name: "Page de grimoire", n: 3, q: "a5", who: "Quelqu'un dans les ruines a perdu son grimoire." },
+  lierre: { name: "Corde de lierre", n: 3, q: "a8", who: "De quoi réparer un pont ?" },
+};
+const got2 = (q, k) => PICK2.filter(p => p.k === k && q.got.includes(p.id)).length;
+const HOUSES2 = [
+  { x0: 18, y0: 53, x1: 20, y1: 55, roof: "#8a3a22", wall: "#d9c09a" },
+  { x0: 36, y0: 53, x1: 38, y1: 55, roof: "#5d7a3a", wall: "#e3cfa8" },
+  { x0: 18, y0: 57, x1: 20, y1: 59, roof: "#a0522d", wall: "#d9c09a" },
+  { x0: 36, y0: 57, x1: 38, y1: 59, roof: "#7a5a2a", wall: "#e3cfa8" },
+];
+const MAP2 = (() => {
+  const MW = 56, MH = 64;
+  const M = Array.from({ length: MH }, () => Array(MW).fill("."));
+  const set = (x, y, c) => { if (x >= 0 && y >= 0 && x < MW && y < MH) M[y][x] = c; };
+  const rect = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, c); };
+  let seed = 4242; const rr = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  // forêt du nord (15-29) et forêt centrale (33-49)
+  for (let y = 2; y < MH - 2; y++) for (let x = 2; x < MW - 2; x++) { const r = rr(); set(x, y, r < 0.11 ? "T" : r < 0.13 ? "o" : r < 0.25 ? "," : r < 0.33 ? "f" : "."); }
+  // bordure
+  rect(0, 0, MW - 1, 1, "T"); rect(0, MH - 2, MW - 1, MH - 1, "T"); rect(0, 0, 1, MH - 1, "T"); rect(MW - 2, 0, MW - 1, MH - 1, "T");
+  // marais de l'ouest
+  for (let y = 34; y <= 49; y++) for (let x = 2; x <= 15; x++) { const r = rr(); set(x, y, r < 0.12 ? "~" : r < 0.2 ? "T" : r < 0.75 ? "m" : ","); }
+  rect(4, 43, 8, 47, "m"); rect(6, 37, 10, 39, "m");
+  // ruines de l'est
+  for (let y = 35; y <= 49; y++) for (let x = 40; x <= 53; x++) set(x, y, rr() < 0.15 ? "," : ".");
+  for (let x = 41; x <= 52; x++) { set(x, 36, "S"); set(x, 48, "S"); }
+  for (let y = 36; y <= 48; y++) { set(41, y, "S"); set(52, y, "S"); }
+  rect(44, 48, 46, 48, "."); rect(41, 41, 41, 43, ".");                    // entrées sud et ouest
+  [[42, 36], [45, 36], [52, 40], [52, 44], [49, 48], [41, 46]].forEach(([x, y]) => set(x, y, "."));  // brèches
+  for (let x = 47; x <= 51; x++) set(x, 41, "S"); for (let y = 37; y <= 41; y++) set(47, y, "S");   // caveau
+  rect(48, 37, 51, 40, "."); set(49, 41, "d"); set(E2.chest.x, E2.chest.y, "K");
+  [[45, 44], [46, 44], [49, 46], [44, 40]].forEach(([x, y]) => set(x, y, "S"));                    // murets
+  E2.braziers.forEach(b => set(b.x, b.y, "M"));
+  // rivière, pont de l'Ourse (cassé)
+  rect(2, 30, 53, 32, "~"); for (let x = 2; x <= 53; x++) if (rr() < 0.5) set(x, 33, ",");
+  for (let y = 30; y <= 32; y++) set(28, y, "x");
+  // clairière du Grand Cerf, fermée par un mur d'arbres et des ronces
+  rect(2, 14, 53, 14, "T"); rect(27, 14, 29, 14, "r");
+  for (let y = 2; y <= 13; y++) for (let x = 2; x <= 53; x++) { if (x < 13 || x > 43) set(x, y, "T"); else { const r = rr(); set(x, y, r < 0.05 ? "T" : r < 0.2 ? "f" : r < 0.3 ? "," : "."); } }
+  rect(13, 2, 43, 2, "C"); rect(18, 3, 38, 3, "C"); set(E2.arch.x, E2.arch.y, "A");
+  rect(24, 5, 32, 11, "."); 
+  // camp des bûcherons (sud)
+  rect(2, 50, 53, 51, "T"); rect(27, 50, 29, 51, ":");
+  rect(2, 52, 15, 61, "T"); rect(41, 52, 53, 61, "T");
+  rect(16, 52, 40, 61, "s");
+  HOUSES2.forEach(h => rect(h.x0, h.y0, h.x1, h.y1, "H"));
+  set(E2.fire.x, E2.fire.y, "w");
+  // chemins
+  for (let y = 33; y <= 61; y++) if (M[y][28] !== "w") set(28, y, ":");
+  rect(27, 55, 27, 57, ":"); rect(29, 55, 29, 57, ":");
+  for (let y = 4; y <= 29; y++) if (y !== 14) set(28, y, ":");
+  for (let x = 14; x <= 28; x++) set(x, 44, ":");
+  for (let x = 28; x <= 41; x++) set(x, 42, ":");
+  for (let x = 9; x <= 28; x++) set(x, 22, ":");
+  // points importants dégagés
+  const clear = c => p => { if ("To~SCmf,".includes(M[p.y][p.x]) || c) set(p.x, p.y, c || "."); };
+  [E2.start, E2.emile, E2.sylvain, E2.cerf, ...Object.values(NPCS2)].forEach(clear());
+  rect(E2.sylvain.x - 1, E2.sylvain.y - 1, E2.sylvain.x + 1, E2.sylvain.y + 1, "m");
+  rect(E2.emile.x - 1, E2.emile.y - 1, E2.emile.x + 1, E2.emile.y + 1, ".");
+  PICK2.forEach(p => { if (!".,:m".includes(M[p.y][p.x])) set(p.x, p.y, p.k === "lune" ? "m" : "."); });
+  [[28, 29], [28, 33], [28, 4]].forEach(([x, y]) => set(x, y, ":"));
+  set(E2.portal.x, E2.portal.y, "P");
+  return M.map(r => r.join(""));
+})();
+const QUESTS2 = [
+  { id: "a1", giver: "gaspard", title: "Les loups du camp", turnIn: false,
+    prog: q => `Vaincre 6 loups dans la forêt : ${Math.min(6, q.wolves)} / 6.`, ok: q => q.wolves >= 6 },
+  { id: "a2", giver: "gaspard", title: "Bois de cœur", turnIn: true,
+    prog: q => got2(q, "log") >= 4 ? "Rapporter les 4 bûches à Gaspard, au camp." : `Trouver 4 bûches de chêne doré dans la forêt centrale : ${got2(q, "log")} / 4.`, ok: q => got2(q, "log") >= 4 },
+  { id: "a3", giver: "nina", title: "Champignons de lune", turnIn: true,
+    prog: q => got2(q, "lune") >= 5 ? "Rapporter les champignons à Nina." : `Cueillir 5 champignons de lune dans le marais, à l'ouest : ${got2(q, "lune")} / 5.`, ok: q => got2(q, "lune") >= 5 },
+  { id: "a4", giver: "nina", title: "Poudre de spores", turnIn: true,
+    prog: q => q.spores >= 3 ? "Rapporter la poudre de spores à Nina." : `Vaincre des champignons sauteurs pour leurs spores : ${q.spores} / 3.`, ok: q => q.spores >= 3 },
+  { id: "a5", giver: "tobias", title: "Les pages du grimoire", turnIn: true,
+    prog: q => got2(q, "page") >= 3 ? "Rapporter les pages à Tobias." : `Retrouver 3 pages du grimoire dans les ruines : ${got2(q, "page")} / 3.`, ok: q => got2(q, "page") >= 3 },
+  { id: "a6", giver: "tobias", title: "Les trois feux", turnIn: false, need: q => q.done.a5,
+    prog: q => q.fires.length < 3 ? `Allumer les 3 braseros des ruines : ${q.fires.length} / 3.` : "Le caveau est ouvert : ouvre le coffre.", ok: q => q.chest },
+  { id: "a7", giver: "seve", title: "Le cœur du marais", turnIn: false,
+    prog: () => "Vaincre Sylvain, le chêne noueux, au cœur du marais (sud-ouest).", ok: q => q.sylvain, doneTxt: "Les ronces du nord se sont retirées." },
+  { id: "a8", giver: "fernand", title: "Le pont de l'Ourse", turnIn: true,
+    prog: q => got2(q, "lierre") >= 3 ? "Rapporter les cordes de lierre à Fernand." : `Trouver 3 cordes de lierre au bord de la rivière : ${got2(q, "lierre")} / 3.`, ok: q => got2(q, "lierre") >= 3, doneTxt: "Le pont est réparé : le nord est ouvert." },
+  { id: "a9", giver: "gaspard", title: "Où est Émile ?", turnIn: true, need: q => q.bridge,
+    prog: q => q.emile === 1 ? "Émile te suit : ramène-le à Gaspard, au camp." : "Retrouver Émile, parti au nord de la rivière, côté ouest.", ok: q => q.emile === 1 },
+  { id: "a10", giver: "auto", title: "Le Grand Cerf d'automne", turnIn: false,
+    prog: () => "Il garde l'arche du nord, derrière les ronces.", ok: q => q.cerf },
+];
+const INTROS2 = {
+  a1: "« Des loups rôdent autour du camp, la nuit. Débarrasse-nous de <b>six</b> d'entre eux et on dormira mieux. »",
+  a2: "« Et tant que tu y es : la forêt cache des <b>bûches de chêne doré</b>. Ce bois-là ne pourrit jamais. Rapporte-m'en quatre. »",
+  a9: "« Le pont est réparé ? Alors c'est par là qu'il est passé… Mon fils <b>Émile</b> a filé au nord de la rivière, côté ouest. Ramène-le-moi, je t'en supplie. »",
+  a3: "« Dans le marais poussent des <b>champignons de lune</b> : ils brillent un peu, on les voit de loin. Cinq, et je te prépare des élixirs. »",
+  a4: "« Les <b>champignons sauteurs</b> lâchent une poudre précieuse quand on les bat. Rapporte-m'en trois doses. »",
+  a5: "« Le vent a dispersé mon grimoire dans les ruines ! Trois <b>pages</b> manquent. Sans elles, je ne retrouve plus la formule des feux. »",
+  a6: "« Voilà la formule. Prends cette <b>flamme qui ne s'éteint pas</b> et allume les <b>trois braseros</b> des ruines : le caveau s'ouvrira. Ce qu'il contient est à toi. »",
+  a7: "« Le vieux <b>Sylvain</b> s'est réveillé de mauvaise humeur, au cœur du marais. Apaise-le… à ta façon. Alors je parlerai aux ronces du nord pour qu'elles s'écartent. »",
+  a8: "« Mon pont s'est effondré au dernier orage. Trouve-moi trois <b>cordes de lierre</b> le long de la rivière et je le remets sur pied. »",
+};
+function reward2(id, q) {
+  if (id === "a1") { G.gold += 25; const it = makeItem(1); giveItem(it); return `Gaspard te donne 25 or et <b class="rar-1">${esc(it.name)}</b>.`; }
+  if (id === "a2") { G.gold += 20; G.kits += 2; return "Gaspard caresse le bois doré : 20 or et 2 trousses de réparation pour toi."; }
+  if (id === "a3") { G.gold += 15; G.elixirs += 2; return "Nina sourit : 15 or et 2 élixirs, tout frais."; }
+  if (id === "a4") { const it = makeItem(2, "charm"); giveItem(it); return `Nina mélange la poudre et t'offre <b class="rar-2">${esc(it.name)}</b>, Épique.`; }
+  if (id === "a5") { G.gold += 25; q.acc.a6 = true; return `Tobias recolle les pages : 25 or.</p><p>${INTROS2.a6}`; }
+  if (id === "a6") { G.gold += 30; const it = makeItem(2, "weapon"); giveItem(it); return `Dans le coffre : 30 or et <b class="rar-2">${esc(it.name)}</b>, Épique.`; }
+  if (id === "a8") { G.gold += 15; q.bridge = true; return "Fernand noue le lierre et remet les planches en place : <b>le pont de l'Ourse est réparé</b>. Et 15 or pour ta peine."; }
+  if (id === "a9") { G.gold += 30; G.potions += 2; q.emile = 2; const it = makeItem(1, "armor"); giveItem(it); return `Gaspard serre Émile à l'étouffer. Il t'offre 30 or, 2 infusions et <b class="rar-1">${esc(it.name)}</b>.`; }
+  return "";
+}
+function tile2(c) {
+  const q = G.q2;
+  if (c === "r" && q.sylvain) return ",";
+  if (c === "x" && q.bridge) return "B";
+  if (c === "d" && q.fires.length >= 3) return ".";
+  if (c === "A" && q.cerf) return "E";
+  return c;
+}
+function spawn2() {
+  const q = G.q2, avoid = [...PICK2, E2.emile], s = [];
+  const add = (kind, n, x0, y0, x1, y1) => { const free = freeSpots(x0, y0, x1, y1, avoid); for (let i = 0; i < n; i++) { const p = pickSpot(free); if (p) s.push({ kind, x: p.x, y: p.y }); } };
+  add("champi", 6, 3, 34, 22, 49);
+  add("loup", 4, 16, 34, 39, 48);
+  add("loup", 3, 40, 35, 53, 49);
+  add("loupn", 5, 3, 16, 53, 29);
+  if (!q.sylvain) s.push({ id: "sylvain", kind: "sylvain", x: E2.sylvain.x, y: E2.sylvain.y, big: true });
+  if (!q.cerf) s.push({ id: "cerf", kind: "cerf", x: E2.cerf.x, y: E2.cerf.y, big: true });
+  return s;
+}
+function kill2(sl) {
+  const q = G.q2;
+  if (sl.kind === "loup" || sl.kind === "loupn") { q.wolves++; return q.acc.a1 && !q.done.a1 ? `<p>Loups : ${Math.min(6, q.wolves)} / 6.</p>` : ""; }
+  if (sl.kind === "champi") { q.shrooms++; if (q.acc.a4 && q.spores < 3) { q.spores++; return `<p>Tu récoltes une dose de <b>poudre de spores</b> (${q.spores} / 3).</p>`; } return ""; }
+  if (sl.kind === "sylvain") { q.sylvain = true; q.acc.a7 = true; q.done.a7 = true; q.acc.a10 = true; return `<p><b>Quête terminée : Le cœur du marais.</b> Au loin, vers le nord, un long froissement : <b>les ronces se retirent</b>. Le Grand Cerf t'attend.</p>`; }
+  if (sl.kind === "cerf") { q.cerf = true; q.done.a10 = true; return `<p class="hint">L'arche du nord s'illumine : <b>l'escalier vers l'étage 3</b> est ouvert.</p>`; }
+  return "";
+}
+function arrive2(h) {
+  const q = G.q2;
+  const p = PICK2.find(o => o.x === h.x && o.y === h.y && !q.got.includes(o.id));
+  if (p) {
+    q.got.push(p.id); const I = PICK_INFO[p.k], n = got2(q, p.k);
+    toast(`${I.name} ${n} / ${I.n}`);
+    if (!q.acc[I.q]) toast(I.who);
+  }
+  if (h.x === E2.emile.x && h.y === E2.emile.y && q.emile === 0) { q.emile = 1; q.acc.a9 = true; toast("« Tu me ramènes à papa ? » Émile te suit."); }
+}
+function interact2(what) {
+  const q = G.q2, h = F.hero;
+  if (what === "feu") return info("Le feu de camp", "<p>Le bois crépite. Gaspard grommelle : « Pas le temps de dormir. Dans la Tour, on ne se repose qu'aux Haltes. »</p>");
+  if (what === "maison") return info("Une cabane de bûcheron", "<p>Ça sent la résine et la soupe aux champignons. La porte est fermée.</p>");
+  if (what === "pont") return info("Le pont de l'Ourse", "<p>Le tablier s'est effondré dans la rivière. Fernand, le passeur, saurait le réparer.</p>");
+  if (what === "ronces") return info("Un mur de ronces", "<p>Des ronces épaisses comme des bras, qui frémissent quand tu approches. Une dryade, au fond du marais, saurait leur parler.</p>");
+  if (what === "arche") return info("L'arche du nord", "<p>Une arche de pierre voilée d'or. Derrière, un escalier monte vers l'étage 3. Le Grand Cerf d'automne garde le passage.</p>");
+  if (what === "porte") return info("La porte du caveau", "<p>Une lourde porte gravée de trois flammes. Elle ne bouge pas d'un pouce.</p>");
+  if (what === "coffre") {
+    if (q.chest) return info("Le coffre", "<p>Vide. Tobias avait raison : ça valait le détour.</p>");
+    q.chest = true; q.acc.a6 = true; completeQuest("a6"); return;
+  }
+  if (what === "brasero") {
+    let bi = 0, bd = 99; E2.braziers.forEach((b, i) => { const d = Math.hypot(b.x - h.rx, b.y - h.ry); if (d < bd) { bd = d; bi = i; } });
+    if (q.fires.includes(bi)) return info("Le brasero", "<p>Une flamme bleue y danse, sans fumée.</p>");
+    if (!q.done.a5) return info("Un brasero froid", "<p>Couvert de runes, et froid comme la pierre. Il faudrait une flamme qui ne s'éteint pas… Le vieil homme des ruines en parle peut-être dans son grimoire.</p>");
+    q.fires.push(bi); save();
+    if (q.fires.length >= 3) info("Le caveau s'ouvre", "<p>Le troisième brasero s'embrase. Dans un grondement, <b>la porte du caveau</b> glisse sur le côté.</p>", "Continuer", () => setMsg(floorHint()));
+    else toast(`Brasero allumé : ${q.fires.length} / 3`);
+    setMsg(floorHint());
+  }
+}
+function objective2(q) {
+  const N = NPCS2, next = k => PICK2.find(p => p.k === k && !q.got.includes(p.id));
+  if (!Object.keys(q.acc).length) return N.gaspard;
+  if (q.emile === 1) return N.gaspard;
+  for (const x of QUESTS2) {
+    if (!q.acc[x.id] || q.done[x.id]) continue;
+    if (x.id === "a2") return got2(q, "log") >= 4 ? N.gaspard : next("log");
+    if (x.id === "a3") return got2(q, "lune") >= 5 ? N.nina : next("lune");
+    if (x.id === "a4") return q.spores >= 3 ? N.nina : E2.swamp;
+    if (x.id === "a5") return got2(q, "page") >= 3 ? N.tobias : next("page");
+    if (x.id === "a6") return q.fires.length >= 3 ? E2.chest : E2.braziers.find((b, i) => !q.fires.includes(i));
+    if (x.id === "a7") return E2.sylvain;
+    if (x.id === "a8") return got2(q, "lierre") >= 3 ? N.fernand : next("lierre");
+    if (x.id === "a9") return E2.emile;
+    if (x.id === "a10") return E2.cerf;
+  }
+  if (q.cerf) return E2.arch;
+  const k = Object.keys(N).find(npcHasNews); return k ? N[k] : null;
+}
+function hint2(q) {
+  if (q.emile === 1) return "Émile te suit. Ramène-le à Gaspard, au camp.";
+  const c = curQuestHint(q); if (c) return c;
+  if (q.cerf) return "L'arche du nord est ouverte : l'escalier monte vers l'étage 3.";
+  return "D'autres habitants ont peut-être besoin d'aide. Cherche les « ! ».";
+}
+function draw2(now, dt, h) {
+  const q = G.q2;
+  F.picks.forEach(({ p, g }) => { g.visible = !q.got.includes(p.id); if (g.visible) { g.position.y = heightAt(p.x, p.y) + 0.05 + Math.sin(now / 450 + p.x) * 0.04; g.rotation.y = now / 1400 + p.y; } });
+  F.braz.forEach((b, i) => { const on = q.fires.includes(i); b.userData.flame.visible = on; if (on) b.userData.flame.scale.set(1, 0.85 + Math.sin(now / 90 + i) * 0.15, 1); });
+  F.vaultDoor.visible = q.fires.length < 3;
+  F.chestLid.rotation.x = q.chest ? -1.2 : 0;
+  F.bridge2.children.forEach(p => { if (p.userData.mid) p.visible = q.bridge; });
+  F.brambles.visible = !q.sylvain;
+  F.archVeil.material.color.set(q.cerf ? "#a7e1ff" : "#f0c04a"); F.archVeil.material.opacity = 0.45 + Math.sin(now / 500) * 0.15;
+  F.fire.userData.flame.scale.set(1, 0.85 + Math.sin(now / 80) * 0.12 + Math.sin(now / 37) * 0.05, 1);
+  if (q.emile === 0) { F.emile.position.set(E2.emile.x, heightAt(E2.emile.x, E2.emile.y), E2.emile.y); F.emile.rotation.y = Math.sin(now / 700) * 0.6; }
+  else if (q.emile === 1) follow(F.emile, h);
+  else { F.emile.position.set(NPCS2.gaspard.x - 0.8, heightAt(NPCS2.gaspard.x, NPCS2.gaspard.y), NPCS2.gaspard.y + 0.5); F.emile.rotation.y = 0.4; }
+}
+function build2(scene) {
+  F.fire = makeCampfire(); at(F.fire, E2.fire.x, 0, E2.fire.y); scene.add(F.fire);
+  // ruines : blocs de pierre de hauteurs variées, mousse sur le dessus
+  const walls = []; for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (MAP[y][x] === "S") walls.push({ x, y, h: 0.45 + ((x * 7 + y * 13) % 5) * 0.24, r: ((x * 5 + y * 3) % 7 - 3) * 0.04 });
+  scene.add(instanced(new THREE.BoxGeometry(1, 1, 1), mat("#b0a898"), walls, t => ({ p: [t.x, t.h / 2, t.y], s: [0.94, t.h, 0.94], ry: t.r, c: (t.x + t.y) % 3 ? "#a9a192" : "#9c9586" })));
+  const rubble = []; walls.forEach(t => { for (let i = 0; i < 2; i++) rubble.push({ x: t.x + (rnd01() - .5) * 1.6, y: t.y + (rnd01() - .5) * 1.6, s: 0.12 + rnd01() * 0.14 }); });
+  scene.add(instanced(new THREE.DodecahedronGeometry(1, 0), mat("#a9a192"), rubble, b => ({ p: [b.x, heightAt(b.x, b.y) + b.s * 0.4, b.y], s: [b.s, b.s * 0.8, b.s], ry: rnd01() * 3 })));
+  // colonnes brisées aux coins des ruines
+  [[41, 36], [52, 36], [41, 48], [52, 48]].forEach(([x, y], i) => { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 2.2 - i * 0.35, 10), mat("#c4baa4", { flat: false })); c.castShadow = true; scene.add(at(c, x, (2.2 - i * 0.35) / 2, y)); });
+  scene.add(instanced(new THREE.BoxGeometry(1, 0.1, 1), mat("#7a8a3a"), walls.filter(t => (t.x * 3 + t.y) % 4 === 0), t => ({ p: [t.x, t.h + 0.04, t.y], s: [1.02, 1, 1.02] })));
+  F.braz = E2.braziers.map(b => { const g = makeBrazier(); at(g, b.x, 0, b.y); scene.add(g); return g; });
+  F.vaultDoor = at(box(0.95, 1.7, 0.25, mat("#5e554c")), 49, 0.85, 41); scene.add(F.vaultDoor);
+  [-0.25, 0, 0.25].forEach(o => F.vaultDoor.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.16, 6), mat("#7fd4ff", { em: "#3fa4df", ei: 0.6 })), o, 0.3, 0.14)));
+  const chest = makeChest(); at(chest, E2.chest.x, 0, E2.chest.y); chest.rotation.y = Math.PI; scene.add(chest); F.chestLid = chest.userData.lid;
+  F.bridge2 = makeBridge2(); scene.add(F.bridge2);
+  F.brambles = makeBrambles(); scene.add(F.brambles);
+  const arch = makeArch(); at(arch, E2.arch.x, 0, E2.arch.y + 0.3); scene.add(arch); F.archVeil = arch.userData.veil;
+  const willow = makeWillow(); at(willow, NPCS2.seve.x - 1.3, heightAt(NPCS2.seve.x - 1, NPCS2.seve.y), NPCS2.seve.y - 1.2); scene.add(willow);
+  F.picks = PICK2.map(p => { const g = makePickup(p.k); at(g, p.x, 0, p.y); scene.add(g); return { p, g }; });
+  F.emile = makePerson({ body: "#3d7fa6", skin: "#f1c7a0", hair: "#c4702e", scale: 0.62, cheek: "#f0a0a0" }); scene.add(F.emile);
+  // petits champignons dans les sous-bois
+  const shrooms = []; for (let y = 15; y < 50; y++) for (let x = 2; x < MW - 2; x++) if (MAP[y][x] === "." && rnd01() < 0.05) shrooms.push({ x: x + (rnd01() - .5) * .8, y: y + (rnd01() - .5) * .8 });
+  scene.add(instanced(new THREE.CylinderGeometry(0.03, 0.035, 0.12, 6), mat("#efe3c8"), shrooms, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.06, b.y] })));
+  scene.add(instanced(new THREE.SphereGeometry(0.08, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat("#c8473a", { flat: false }), shrooms, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.11, b.y], s: [1, 0.7, 1], c: rnd01() < 0.7 ? "#c8473a" : "#d9a040" })));
+}
+LEVELS.e2 = {
+  id: "e2", name: "Étage 2 · La forêt d'automne", loading: "Chargement de la forêt d'automne…",
+  W: 56, H: 64, MAP: MAP2, NPCS: NPCS2, QUESTS: QUESTS2, START: E2.start, PORTAL: E2.portal, houses: HOUSES2,
+  qs: () => G.q2, block: "TC~oHwSMKdxrA", tile: tile2,
+  near: { H: "maison", w: "feu", M: "brasero", K: "coffre", d: "porte", x: "pont", r: "ronces", A: "arche" },
+  labels: { feu: "Se réchauffer au feu", brasero: "Allumer le brasero", coffre: "Ouvrir le coffre", porte: "Examiner la porte", pont: "Examiner le pont", ronces: "Examiner les ronces", arche: "Examiner l'arche", maison: "Frapper à la porte" },
+  firstHint: "Le camp des bûcherons est juste après l'arrivée sur l'étage 2. Les « ! » dorés signalent quelqu'un qui a besoin d'aide.",
+  firstTip: "Les bûcherons du camp ont besoin d'aide (« ! » dorés). Pas de repos avant la Halte du palier 5 !",
+  intros: INTROS2,
+  idle: { gaspard: "« Le camp dort tranquille grâce à toi. »", nina: "« Mes élixirs n'ont jamais été aussi bons. »", fernand: "« Le pont tiendra cent ans, foi de passeur. »", seve: "« Les arbres chantent de nouveau. »", tobias: "« Le grimoire est complet. Merci, voyageur. »" },
+  idleExtra: (k, q) => k === "fernand" && !q.bridge ? "" : k === "seve" && q.sylvain && !q.cerf ? "<p>« Les ronces t'ont laissé passer. Le Grand Cerf est fier : ne le sous-estime pas. »</p>" : "",
+  afterAccept: q => { if (q.wolves >= 6 && q.acc.a1 && !q.done.a1) completeQuest("a1"); },
+  reward: reward2, afterComplete: id => { if (id === "a8" && F) buildMinimap(); },
+  onKill: kill2, afterKill: q => { if (q.acc.a1 && !q.done.a1 && q.wolves >= 6) completeQuest("a1"); },
+  build: build2, draw: draw2, arrive: arrive2, interact: interact2, objective: objective2, spawn: spawn2, hint: hint2,
+  roam: (x, y, s) => Math.abs(x - s.hx) <= 5 && Math.abs(y - s.hy) <= 5 && y < 50 && (y > 14 || s.hy <= 14),
+  mm: (x, S, dot) => {
+    const q = G.q2;
+    if (q.bridge) { x.fillStyle = "#a87344"; x.fillRect(28 * S, 30 * S, S, 3 * S); }
+    if (q.sylvain) { x.fillStyle = "#8f8a3e"; x.fillRect(27 * S, 14 * S, 3 * S, S); }
+    PICK2.forEach(p => { if (!q.got.includes(p.id) && (p.k === "lune" || q.acc[PICK_INFO[p.k].q])) dot(p.x, p.y, p.k === "lune" ? "#9ff0ff" : "#ffe08a", 1.2); });
+    E2.braziers.forEach((b, i) => dot(b.x, b.y, q.fires.includes(i) ? "#7fd4ff" : "#5e554c", 1.3));
+  },
+  journalExtra: q => q.cerf ? `<div class="hint">L'arche du nord est ouverte : l'escalier monte vers l'étage 3.</div>` : "",
+  looks: {
+    gaspard: { body: "#7a3b2a", skin: "#e0a77f", hair: "#3b2a1e", apron: "#5e3e22", beard: true, wide: 1.15, hammer: true },
+    nina: { body: "#5d7a3a", skin: "#f1c7a0", hair: "#7a3b2a", hat: "#8a5a32", dress: true },
+    fernand: { body: "#2f5d7a", skin: "#e8b48f", hair: "#d0d0d0", hat: "#3b4a55", beard: true, rod: true },
+    seve: { body: "#8fbf4a", skin: "#cfe8b0", hair: "#e0a83a", dress: true, tails: true, cheek: "#e8a050" },
+    tobias: { body: "#4a3a6a", skin: "#e0b090", hair: "#e8e8e8", hat: "#3a2e55", beard: true, staff: true },
+  },
+  npcRot: { fernand: Math.PI, seve: 0.5 }, mixamo: { gaspard: "ouvrier", tobias: "citadin" },
+  groundCol: c => ({ ".": [0.64, 0.6, 0.3], ",": [0.56, 0.52, 0.26], f: [0.72, 0.48, 0.24], ":": [0.72, 0.6, 0.42], s: [0.68, 0.57, 0.4], m: [0.32, 0.37, 0.22], C: [0.58, 0.52, 0.32] })[c],
+  pal: { tree: ["#d9822b", "#c0492b", "#e0a83a", "#b8572a", "#9a7a2a", "#e7c04a"], pine: ["#3f5d33", "#344f2b"], pineEvery: 4, trunk: "#5a3a24", blade: ["#b8a848", "#9aa040"], reed: "#7f9440",
+    leaves: ["#d9822b", "#c0492b", "#e0a83a", "#a0522d", "#8f3a22"], pad: "#6a7a3a", cliffTop: "#a08a3a" },
+  farCol: "#a8904a", mmCol: { ".": "#a8a050", ",": "#8f8a3e", f: "#c07a3a", T: "#8a4a22", s: "#c8b088", m: "#56703f", ":": "#d8c088" },
+};
+
+/* ---------- Halte du palier 5 : le belvédère ---------- */
+const NPCS_H = {
+  isaure: { name: "Isaure, gardienne de la source", x: 17, y: 16 },
+  mira:   { name: "Mira, la marchande", x: 6, y: 12 },
+  hugo:   { name: "Hugo, le forgeron", x: 23, y: 12 },
+};
+const MAP_H = (() => {
+  const MW = 30, MH = 30;
+  const M = Array.from({ length: MH }, () => Array(MW).fill("."));
+  const set = (x, y, c) => { if (x >= 0 && y >= 0 && x < MW && y < MH) M[y][x] = c; };
+  const rect = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, c); };
+  let seed = 909; const rr = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let y = 2; y < MH - 2; y++) for (let x = 2; x < MW - 2; x++) set(x, y, rr() < 0.18 ? "f" : rr() < 0.15 ? "," : ".");
+  rect(0, 0, MW - 1, 1, "C"); rect(0, MH - 2, MW - 1, MH - 1, "C"); rect(0, 0, 1, MH - 1, "C"); rect(MW - 2, 0, MW - 1, MH - 1, "C");
+  [[2, 2], [3, 2], [2, 3], [26, 2], [27, 2], [27, 3], [2, 26], [27, 26], [26, 27]].forEach(([x, y]) => set(x, y, "T"));
+  rect(8, 8, 21, 21, "s");
+  rect(14, 14, 15, 15, "F");
+  rect(4, 10, 7, 11, "N"); rect(22, 10, 24, 11, "G");
+  rect(20, 19, 22, 21, "H");
+  set(9, 21, "w");
+  for (let y = 3; y <= 26; y++) if (!"F".includes(M[y][15])) set(15, y, ":");
+  for (let x = 5; x <= 24; x++) if (M[13][x] === "." || M[13][x] === "f" || M[13][x] === ",") set(x, 13, ":");
+  rect(13, 2, 17, 2, "C"); set(15, 2, "C"); set(15, 3, "E");
+  set(15, 27, "P");
+  Object.values(NPCS_H).forEach(p => { if ("fT,".includes(M[p.y][p.x])) set(p.x, p.y, "s"); });
+  return M.map(r => r.join(""));
+})();
+function healAtFountain() {
+  const mh = maxHp(), before = Math.min(G.hp ?? mh, mh); G.hp = mh; G.regen = true; save(); renderHUD();
+  info("La source de la Halte", `<p>L'eau est fraîche et pétille de lumière. ${before < mh ? `<b>+${mh - before} PV</b> : te voilà en pleine forme.` : "Tu es déjà en pleine forme."}</p>
+    <p><b>Bénédiction : Régénération.</b> Jusqu'à ta prochaine sortie de la Tour, chaque victoire te rend un peu de PV.</p>`);
+}
+function shopStock() {
+  if (!G.shop || G.shop.at !== LV.id || G.shop.pause !== G.pauseId) {
+    const t = levelNum(LV.id);
+    G.shop = { at: LV.id, pause: G.pauseId, items: [makeItem(0, null, t), makeItem(1, null, t), makeItem(Math.random() < 0.35 ? 2 : 1, null, t)] };
+    save();
+  }
+  return G.shop.items;
+}
+function shopSheet() {
+  const its = shopStock();
+  const row = (act, name, txt, price) => `<li class="item"><div><div class="nm">${name}</div><div class="st">${txt}</div></div><div class="bt"><button class="btn small" data-act="${act}" ${G.gold < price ? "disabled" : ""}>Acheter · ${price} or</button></div></li>`;
+  sheet(`<h2>L'étal de Mira</h2><p class="muted" style="margin:0">« Tout ce qu'il faut pour les cinq prochains étages ! » Tu as <b class="num">${G.gold}</b> or.</p>
+    <div class="panel"><h3>Matériel</h3><ul class="items">
+      ${row("buy-potion", "Infusion", `+${POTION_HEAL} PV · tu en as ${G.potions}`, POTION_PRICE)}
+      ${row("buy-elixir", "Élixir", `+${ELIXIR_HEAL} PV · tu en as ${G.elixirs}`, ELIXIR_PRICE)}
+      ${row("buy-kit", "Trousse de réparation", `+${KIT_FIX} de durabilité à l'équipement porté · tu en as ${G.kits}`, KIT_PRICE)}
+    </ul></div>
+    <div class="panel"><h3>Équipement</h3>${its.length ? `<ul class="items">${its.map(it => `<li class="item"><div><div class="nm rar-${it.rarity}">${esc(it.name)}</div><div class="st">${RARITY[it.rarity]} · ${SLOT_NAME[it.slot]} · ${statText(it)} · durabilité ${it.durMax}</div></div>
+      <div class="bt"><button class="btn small" data-act="buy-item" data-id="${it.id}" ${G.gold < buyPrice(it) ? "disabled" : ""}>Acheter · ${buyPrice(it)} or</button></div></li>`).join("")}</ul>` : `<p class="muted" style="margin:0">Tout est vendu ! Nouveau stock à ta prochaine pause.</p>`}</div>
+    <p class="label" style="margin:4px 0 0">Vendre à Mira</p>
+    ${itemsHtml({ sell: 1 })}
+    <button class="btn primary" id="shop-ok" data-focus>Fermer</button>`, { dismiss: true, refresh: shopSheet });
+  $("#shop-ok").onclick = closeSheet;
+}
+function forgeSheet() {
+  sheet(`<h2>La forge de Hugo</h2><p class="muted" style="margin:0">« Une lame bien entretenue en vaut deux. » Attaque ${atk()} · Défense ${def()} · PV max ${maxHp()}</p>
+    ${repairBar()}${itemsHtml({ repair: 1, upgrade: 1 })}
+    <button class="btn primary" id="forge-ok" data-focus>Fermer</button>`, { dismiss: true, refresh: forgeSheet });
+  $("#forge-ok").onclick = closeSheet;
+}
+function buildH(scene) {
+  const f = makeFountain(); at(f, 15, 0, 15); scene.add(f); F.fount = f;
+  const stall = makeStall(); at(stall, 5.5, 0, 10.5); scene.add(stall);
+  const forge = makeForge(); at(forge, 23, 0, 10.5); scene.add(forge); F.coal = forge.userData.coal;
+  F.fire = makeCampfire(); at(F.fire, 9, 0, 21); scene.add(F.fire);
+  const arch = makeArch(); at(arch, 15, 0, 3.2); scene.add(arch); F.archVeil = arch.userData.veil; F.archVeil.material.color.set("#a7e1ff");
+  // bancs et lanternes autour de la place
+  [[11, 11], [18, 11], [11, 18], [18, 18]].forEach(([x, z]) => { const l = new THREE.Group(); l.add(at(box(0.08, 1.4, 0.08, mat("#3b2a1e")), 0, 0.7, 0)); l.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.13, 0), mat("#fff3b0", { em: "#f0b030", ei: 1.2 })), 0, 1.45, 0)); scene.add(at(l, x, 0, z)); });
+  [[12, 16, 0], [18, 13, Math.PI / 2]].forEach(([x, z, r]) => { const b = new THREE.Group(); b.add(at(box(1.2, 0.08, 0.35, mat("#8a5a32")), 0, 0.42, 0)); [-0.5, 0.5].forEach(o => b.add(at(box(0.08, 0.4, 0.3, mat("#5e3e22")), o, 0.2, 0))); b.rotation.y = r; scene.add(at(b, x, 0, z)); });
+}
+function drawH(now) {
+  F.fount.userData.water.rotation.y = now / 2000; F.fount.userData.jet.scale.y = 1 + Math.sin(now / 200) * 0.08;
+  F.fire.userData.flame.scale.set(1, 0.85 + Math.sin(now / 80) * 0.12, 1);
+  F.coal.material.emissiveIntensity = 0.8 + Math.sin(now / 300) * 0.3;
+  F.archVeil.material.opacity = 0.45 + Math.sin(now / 500) * 0.15;
+}
+LEVELS.h5 = {
+  id: "h5", name: "Halte du palier 5 · Le belvédère", loading: "Chargement de la Halte…",
+  W: 30, H: 30, MAP: MAP_H, NPCS: NPCS_H, QUESTS: [], START: { x: 15, y: 25 }, PORTAL: { x: 15, y: 27 },
+  houses: [{ x0: 20, y0: 19, x1: 22, y1: 21, roof: "#2f9c98", wall: "#f1e6cc" }],
+  qs: () => ({ acc: {}, done: {} }), block: "TC~oHwFNG", near: { F: "fontaine", N: "etal", G: "forge", w: "feu", H: "maison" },
+  labels: { fontaine: "Boire à la fontaine", etal: "Voir l'étal", forge: "Voir la forge", feu: "S'asseoir au feu", maison: "Entrer à l'auberge" },
+  firstTip: "Une Halte : la fontaine soigne, Mira vend et achète, Hugo répare. Ta montée repartira d'ici.", firstHint: "",
+  intros: {}, idle: {},
+  talk: k => { if (k === "isaure") healAtFountain(); else if (k === "mira") shopSheet(); else forgeSheet(); return true; },
+  interact: w => {
+    if (w === "fontaine") return healAtFountain();
+    if (w === "etal") return shopSheet();
+    if (w === "forge") return forgeSheet();
+    if (w === "feu") return info("Le feu de la Halte", "<p>Tu t'assieds un instant. Ici, la Tour te laisse souffler. Au-dessus, l'escalier continue vers l'étage 6.</p>");
+    if (w === "maison") return info("L'auberge du belvédère", "<p>« Complet ! » crie l'aubergiste. « Mais la fontaine soigne, et c'est gratuit. »</p>");
+  },
+  build: buildH, draw: drawH, spawn: () => [], roam: () => false,
+  hint: () => (G.hp ?? maxHp()) < maxHp() ? "Bois à la fontaine pour te soigner et recevoir la Régénération." : "Mira vend et achète, Hugo répare. L'escalier du nord mène à l'étage 6.",
+  objective: () => (G.hp ?? maxHp()) < maxHp() || !G.regen ? { x: 15, y: 15 } : null,
+  looks: {
+    isaure: { body: "#e8f0f8", skin: "#f1d7c0", hair: "#e8e0c8", dress: true, cheek: "#f0c0c0" },
+    mira: { body: "#c47f00", skin: "#e0a77f", hair: "#3b2a1e", dress: true, hat: "#b3412e" },
+    hugo: { body: "#4f555a", skin: "#e0a77f", hair: "#7a3b2a", apron: "#3a3a3a", beard: true, wide: 1.2, hammer: true },
+  },
+  npcRot: { mira: 0, hugo: 0 }, mixamo: { mira: "maria", hugo: "ouvrier" },
+  groundCol: c => ({ s: [0.66, 0.62, 0.54], ":": [0.76, 0.68, 0.52] })[c],
+  pal: { cliffUp: -0.8, rock: "#b8ae9a", rock2: "#c4baa4", cliffTop: "#7fbf5a" }, farCol: "#7fb6d6",
+};
+
+/* ---------- Modèles de l'étage 2 et des Haltes ---------- */
+function makeShroom() {
+  const g = new THREE.Group(), body = new THREE.Group(), cream = sm("#f2e6cc"), dark = sm("#1c2a22", { r: 0.2 });
+  body.add(mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.42, 14), cream, 0, 0.23, 0));
+  const capm = mesh(new THREE.SphereGeometry(0.38, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), sm("#c8473a", { r: 0.5 }), 0, 0.4, 0); capm.scale.y = 0.75; body.add(capm);
+  for (let i = 0; i < 7; i++) { const a = i * 2.4, r = i ? 0.24 : 0; body.add(mesh(sph(0.05, 8, 6), sm("#fff8ea"), Math.cos(a) * r, 0.66 - r * 0.45, Math.sin(a) * r)); }
+  [-0.07, 0.07].forEach(x => { body.add(mesh(sph(0.04, 10, 8), sm("#ffffff", { r: 0.3 }), x, 0.3, 0.16)); body.add(mesh(sph(0.022, 8, 6), dark, x, 0.3, 0.195)); });
+  [-0.09, 0.09].forEach(x => body.add(mesh(sph(0.07, 10, 8), cream, x, 0.04, 0.04)));
+  g.add(body); g.userData.body = body; return g;
+}
+function makeQuad(o) {
+  const g = new THREE.Group(), body = new THREE.Group(), k = o.k || 1, fur = sm(o.fur), dark = sm(o.dark);
+  const torso = mesh(cap(0.19 * k, 0.48 * k), fur, 0, 0.55 * k, 0); torso.rotation.x = Math.PI / 2; body.add(torso);
+  body.add(mesh(sph(0.2 * k, 14, 10), fur, 0, 0.6 * k, 0.26 * k));
+  const hd = new THREE.Group(); hd.position.set(0, 0.8 * k, 0.45 * k);
+  hd.add(mesh(sph(0.16 * k, 14, 10), fur));
+  const snout = mesh(new THREE.ConeGeometry(0.09 * k, 0.28 * k, 8), o.snout ? sm(o.snout) : fur, 0, -0.04 * k, 0.2 * k); snout.rotation.x = Math.PI / 2; hd.add(snout);
+  hd.add(mesh(sph(0.035 * k, 8, 6), sm("#1c1a1e"), 0, -0.03 * k, 0.34 * k));
+  const eye = sm(o.eye, { em: o.eye, ei: 0.9 });
+  [-0.07, 0.07].forEach(x => hd.add(mesh(sph(0.026 * k, 8, 6), eye, x, 0.04 * k, 0.12 * k)));
+  if (o.ears) [-0.08, 0.08].forEach(x => { const e = mesh(new THREE.ConeGeometry(0.05 * k, 0.14 * k, 6), dark, x, 0.15 * k, -0.02 * k); hd.add(e); });
+  if (o.antlers) {
+    const am = sm("#e8d6a8", { em: "#6a4a10", ei: 0.25 }), leaf = sm("#e0a83a", { em: "#c0661a", ei: 0.6 });
+    [-1, 1].forEach(sd => {
+      const a = new THREE.Group(); a.position.set(sd * 0.07 * k, 0.12 * k, -0.02 * k); a.rotation.z = -sd * 0.5;
+      const seg = (len, x, y, rz) => { const m = mesh(new THREE.CylinderGeometry(0.018 * k, 0.026 * k, len * k, 6), am, x * k, y * k, 0); m.rotation.z = rz; a.add(m); return m; };
+      seg(0.5, 0, 0.25, 0); seg(0.26, sd * -0.08, 0.36, sd * 0.8); seg(0.3, sd * 0.1, 0.46, -sd * 0.7); seg(0.22, sd * -0.05, 0.58, sd * 0.6);
+      [[0, 0.52], [sd * -0.16, 0.44], [sd * 0.2, 0.58], [sd * -0.12, 0.66]].forEach(([x, y]) => a.add(mesh(new THREE.IcosahedronGeometry(0.06 * k, 0), leaf, x * k, y * k, 0)));
+      hd.add(a);
+    });
+  }
+  body.add(hd);
+  const legs = [[-0.11, 0.24], [0.11, 0.24], [-0.11, -0.24], [0.11, -0.24]].map(([x, z]) => { const l = new THREE.Group(); l.position.set(x * k, 0.45 * k, z * k); l.add(mesh(new THREE.CylinderGeometry(0.045 * k, 0.035 * k, (o.legs || 0.42) * k, 6), dark, 0, -(o.legs || 0.42) * k / 2, 0)); body.add(l); return l; });
+  const tail = new THREE.Group(); tail.position.set(0, 0.62 * k, -0.42 * k); const tm = mesh(cap(0.05 * k, (o.tail || 0.26) * k), fur, 0, 0, -0.12 * k); tm.rotation.x = -1.0; tail.add(tm); body.add(tail);
+  if (o.legs) body.position.y = (o.legs - 0.42) * k;
+  g.add(body); g.userData.body = body;
+  g.userData.gait = (t, mv) => { const a = mv ? Math.sin(t * 9) * 0.55 : 0; legs[0].rotation.x = a; legs[3].rotation.x = a; legs[1].rotation.x = -a; legs[2].rotation.x = -a; body.rotation.x = mv ? Math.sin(t * 18) * 0.03 : 0; hd.rotation.x = mv ? 0 : Math.sin(t * 1.3) * 0.08; tail.rotation.y = Math.sin(t * 4) * 0.4; };
+  g.scale.setScalar(o.scale || 1);
+  return g;
+}
+const makeWolf = (fur, dark, black) => makeQuad({ fur, dark, snout: black ? "#2e2a33" : "#b8b9bc", eye: black ? "#ff5a3a" : "#ffd23a", ears: true, k: 1, scale: black ? 1.15 : 1 });
+const makeStag = () => makeQuad({ fur: "#a8743a", dark: "#5a3a22", snout: "#d9b890", eye: "#fff2b0", antlers: true, k: 1, legs: 0.6, tail: 0.12, scale: 1.75 });
+function makeTreant() {
+  const g = new THREE.Group(), body = new THREE.Group(), bark = mat("#5a3a24"), bark2 = mat("#6b4a2b");
+  body.add(mesh(new THREE.CylinderGeometry(0.32, 0.48, 1.3, 9, 3), bark, 0, 0.65, 0));
+  for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2, r = mesh(new THREE.ConeGeometry(0.12, 0.7, 6), bark2, Math.cos(a) * 0.45, 0.12, Math.sin(a) * 0.45); r.rotation.z = Math.cos(a) * 1.2; r.rotation.x = -Math.sin(a) * 1.2; body.add(r); }
+  [-1, 1].forEach(sd => { const arm = new THREE.Group(); arm.position.set(sd * 0.3, 1.0, 0); arm.rotation.z = sd * -1.0; arm.add(mesh(new THREE.CylinderGeometry(0.06, 0.1, 0.8, 6), bark2, 0, 0.4, 0)); const tw = mesh(new THREE.CylinderGeometry(0.03, 0.05, 0.4, 5), bark2, sd * 0.12, 0.75, 0); tw.rotation.z = sd * 0.7; arm.add(tw); body.add(arm); });
+  const eye = sm("#d9ff7a", { em: "#b0ff3a", ei: 1.2 });
+  [-0.12, 0.12].forEach(x => body.add(mesh(sph(0.06, 10, 8), eye, x, 0.95, 0.33)));
+  body.add(at(box(0.22, 0.08, 0.06, mat("#1f1712")), 0, 0.75, 0.38));
+  const leaves = ["#d9822b", "#c0492b", "#e0a83a"];
+  [[0, 1.6, 0, 0.6], [0.35, 1.45, 0.1, 0.42], [-0.32, 1.5, -0.1, 0.45], [0.05, 1.95, -0.05, 0.4]].forEach(([x, y, z, r], i) => { const c = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), mat(leaves[i % 3])); c.castShadow = true; body.add(at(c, x, y, z)); });
+  g.add(body); g.userData.body = body;
+  g.userData.gait = t => { body.rotation.z = Math.sin(t * 1.3) * 0.04; };
+  g.scale.setScalar(1.25);
+  return g;
+}
+function makeCampfire() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; g.add(at(new THREE.Mesh(new THREE.DodecahedronGeometry(0.11, 0), mat("#8c9399")), Math.cos(a) * 0.36, 0.06, Math.sin(a) * 0.36)); }
+  [0, 1.1, 2.2].forEach(r => { const l = mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.6, 6), mat("#5a3a24"), 0, 0.08, 0); l.rotation.z = Math.PI / 2; l.rotation.y = r; g.add(l); });
+  const fl = new THREE.Group();
+  fl.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.55, 7), new THREE.MeshBasicMaterial({ color: "#ffb03a", transparent: true, opacity: 0.9 })), 0, 0.33, 0));
+  fl.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.35, 6), new THREE.MeshBasicMaterial({ color: "#fff0a0" })), 0, 0.25, 0));
+  g.add(fl); g.userData.flame = fl;
+  return g;
+}
+function makeBrazier() {
+  const g = new THREE.Group(), st = mat("#8c8478");
+  g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 0.8, 8), st), 0, 0.4, 0));
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.2, 0.22, 10), mat("#5e554c")); bowl.castShadow = true; g.add(at(bowl, 0, 0.9, 0));
+  const fl = new THREE.Group();
+  fl.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.6, 7), new THREE.MeshBasicMaterial({ color: "#7fd4ff", transparent: true, opacity: 0.85 })), 0, 1.3, 0));
+  fl.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.4, 6), new THREE.MeshBasicMaterial({ color: "#e6fbff" })), 0, 1.2, 0));
+  g.add(fl); g.userData.flame = fl; return g;
+}
+function makeChest() {
+  const g = new THREE.Group(), wood = mat("#8a5a32"), gold = mat("#d8a640", { em: "#5a3d0c", ei: 0.4 });
+  g.add(at(box(0.8, 0.45, 0.5, wood), 0, 0.23, 0)); [-0.3, 0.3].forEach(x => g.add(at(box(0.07, 0.47, 0.52, gold), x, 0.23, 0)));
+  const lid = new THREE.Group(); lid.position.set(0, 0.45, -0.25);
+  const lm = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.8, 12, 1, false, 0, Math.PI), wood); lm.rotation.z = Math.PI / 2; lm.castShadow = true; lid.add(at(lm, 0, 0, 0.25));
+  lid.add(at(box(0.12, 0.12, 0.06, gold), 0, 0.02, 0.52));
+  g.add(lid); g.userData.lid = lid; return g;
+}
+function makeBridge2() {
+  const g = new THREE.Group(), wood = mat("#a87344"), dark = mat("#7a5230");
+  for (let i = 0; i < 15; i++) { const z = 29.4 + i * 0.23; const p = at(box(1, 0.08, 0.2, wood), 28, 0.06, z); p.userData.mid = i > 2 && i < 12; g.add(p); }
+  [27.55, 28.45].forEach(x => { const r = at(box(0.06, 0.08, 3.5, dark), x, 0.5, 31); r.userData.mid = true; g.add(r); [29.5, 31, 32.5].forEach(z => { const post = at(box(0.08, 0.5, 0.08, dark), x, 0.25, z); post.userData.mid = z === 31; g.add(post); }); });
+  return g;
+}
+function makeBrambles() {
+  const g = new THREE.Group(), vine = mat("#5a2a22"), thorn = mat("#2f1a16");
+  for (let x = 27; x <= 29; x++) for (let i = 0; i < 7; i++) {
+    const c = new THREE.Mesh(new THREE.TorusGeometry(0.28 + rnd01() * 0.15, 0.05, 5, 12), vine); c.castShadow = true;
+    c.rotation.set(rnd01() * 3, rnd01() * 3, rnd01() * 3); g.add(at(c, x + (rnd01() - .5) * 0.6, 0.3 + rnd01() * 1.0, 14 + (rnd01() - .5) * 0.5));
+    g.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 4), thorn), x + (rnd01() - .5) * 0.8, 0.3 + rnd01() * 1.1, 14 + (rnd01() - .5) * 0.6));
+  }
+  for (let i = 0; i < 9; i++) g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), mat("#8f1f2a")), 27 + rnd01() * 2, 0.5 + rnd01() * 0.9, 14 + (rnd01() - .5) * 0.5));
+  return g;
+}
+function makeArch() {
+  const g = new THREE.Group(), st = mat("#e3d4b2"), gold = mat("#d8a640", { em: "#6a4a10", ei: 0.5 });
+  [-0.75, 0.75].forEach(x => { g.add(at(box(0.4, 2.4, 0.5, st), x, 1.2, 0)); g.add(at(box(0.5, 0.2, 0.6, gold), x, 0.1, 0)); });
+  g.add(at(box(2.1, 0.4, 0.6, st), 0, 2.5, 0)); g.add(at(box(0.3, 0.3, 0.1, gold), 0, 2.5, 0.32));
+  const veil = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 2.3), new THREE.MeshBasicMaterial({ color: "#f0c04a", transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+  g.add(at(veil, 0, 1.15, 0)); g.userData.veil = veil;
+  for (let i = 0; i < 3; i++) g.add(at(box(1.1, 0.12, 0.3, st), 0, 0.06 + i * 0.12, -0.2 - i * 0.3));
+  return g;
+}
+function makeWillow() {
+  const g = new THREE.Group(), bark = mat("#4a3a2a");
+  g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.45, 2.2, 8), bark), 0, 1.1, 0));
+  const m = addWind(mat("#b8a040", { flat: false }), 0.6);
+  for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; const c = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.6, 6, 1, true), m); c.material.side = THREE.DoubleSide; c.castShadow = true; g.add(at(c, Math.cos(a) * 0.9, 1.6, Math.sin(a) * 0.9)); }
+  g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(1.2, 1), mat("#c9a83a")), 0, 2.6, 0));
+  return g;
+}
+function makePickup(k) {
+  const g = new THREE.Group();
+  if (k === "log") { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.6, 10), mat("#c9973c", { em: "#8a5a10", ei: 0.5 })); l.rotation.z = Math.PI / 2; l.castShadow = true; g.add(at(l, 0, 0.14, 0)); [-0.3, 0.3].forEach(x => { const r = new THREE.Mesh(new THREE.CircleGeometry(0.11, 10), mat("#f0d080", { em: "#c09030", ei: 0.6 })); r.rotation.y = Math.PI / 2; g.add(at(r, x + Math.sign(x) * 0.005, 0.14, 0)); }); }
+  if (k === "lune") { g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 6), mat("#e6f6ff")), 0, 0.11, 0)); const c = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat("#9ff0ff", { em: "#3fd0ff", ei: 1.3, flat: false })); g.add(at(c, 0, 0.21, 0)); }
+  if (k === "page") { const p = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.38), new THREE.MeshStandardMaterial({ color: "#f6ecd0", emissive: "#a08a50", emissiveIntensity: 0.3, side: THREE.DoubleSide })); p.rotation.x = -0.9; g.add(at(p, 0, 0.3, 0)); }
+  if (k === "lierre") { const t = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.045, 6, 14), mat("#5aa040", { em: "#2a6a20", ei: 0.4 })); t.rotation.x = Math.PI / 2; g.add(at(t, 0, 0.08, 0)); g.add(at(new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.04, 6, 12), mat("#4f9a37")), 0, 0.16, 0)).children.at(-1).rotation.x = Math.PI / 2; }
+  // halo doré au sol pour les repérer
+  const halo = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.32, 20), new THREE.MeshBasicMaterial({ color: k === "lune" ? "#9ff0ff" : "#ffe08a", transparent: true, opacity: 0.55, depthWrite: false }));
+  halo.rotation.x = -Math.PI / 2; g.add(at(halo, 0, 0.02, 0));
+  return g;
+}
+function makeFountain() {
+  const g = new THREE.Group(), st = mat("#d9d0bc"), st2 = mat("#c4baa4");
+  const basin = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.15, 0.45, 20, 1, true), st); basin.material.side = THREE.DoubleSide; basin.castShadow = true; g.add(at(basin, 0, 0.22, 0));
+  g.add(at(new THREE.Mesh(new THREE.TorusGeometry(1.08, 0.08, 6, 24), st2), 0, 0.45, 0)).children.at(-1).rotation.x = Math.PI / 2;
+  const water = new THREE.Mesh(new THREE.CircleGeometry(1.02, 24), mat("#7fd4ff", { em: "#3fa4df", ei: 0.5, flat: false })); water.rotation.x = -Math.PI / 2; g.add(at(water, 0, 0.36, 0));
+  g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 1.1, 10), st), 0, 0.8, 0));
+  g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.15, 0.2, 14), st2), 0, 1.35, 0));
+  const jet = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.6, 10, 1, true), new THREE.MeshBasicMaterial({ color: "#d4fbff", transparent: true, opacity: 0.7, depthWrite: false }));
+  g.add(at(jet, 0, 1.7, 0));
+  g.add(at(new THREE.Mesh(new THREE.OctahedronGeometry(0.12, 0), new THREE.MeshBasicMaterial({ color: "#bff6ff" })), 0, 2.1, 0));
+  g.position.set(0.5, 0, 0.5); const outer = new THREE.Group(); outer.add(g);
+  outer.userData = { water, jet }; return outer;
+}
+function makeStall() {
+  const g = new THREE.Group(), wood = mat("#8a5a32");
+  [[-1.4, -0.4], [1.4, -0.4], [-1.4, 0.4], [1.4, 0.4]].forEach(([x, z]) => g.add(at(box(0.1, 1.9, 0.1, wood), x, 0.95, z)));
+  g.add(at(box(2.9, 0.6, 0.6, mat("#a87344")), 0, 0.3, 0.3));
+  for (let i = 0; i < 6; i++) g.add(at(box(0.5, 0.06, 1.2, mat(i % 2 ? "#f6ecd0" : "#c8473a")), -1.25 + i * 0.5, 2.0, 0));
+  ["#c8473a", "#3fa4df", "#4f9a37", "#f0c04a", "#8a4fc2"].forEach((c, i) => g.add(at(new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), mat(c, { em: c, ei: 0.3, flat: false })), -1 + i * 0.5, 0.68, 0.35)));
+  return g;
+}
+function makeForge() {
+  const g = new THREE.Group(), st = mat("#6b7177");
+  g.add(at(box(1.4, 1.2, 1.2, st), 0.4, 0.6, -0.2)); g.add(at(box(0.45, 1.8, 0.45, st), 0.7, 2.0, -0.4));
+  const coal = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.2, 0.06), mat("#ff7a2a", { em: "#ff5a1a", ei: 1 })); g.add(at(coal, 0.4, 0.55, 0.41)); g.userData.coal = coal;
+  const anvil = new THREE.Group(); anvil.add(at(box(0.55, 0.2, 0.28, mat("#4f555a")), 0, 0.5, 0)); anvil.add(at(box(0.26, 0.4, 0.22, mat("#4f555a")), 0, 0.2, 0));
+  g.add(at(anvil, -0.8, 0, 0.3));
+  return g;
+}
+useLevel("e1");
 
 /* ================= Événements ================= */
 document.addEventListener("click", e => {
@@ -2162,6 +2980,19 @@ document.addEventListener("click", e => {
     case "rest-cancel": G.rest = null; break;
     case "rest-done": if (G.rest && Date.now() >= G.rest.endAt) { G.rested = true; G.rest = null; G.hp = maxHp(); toast("Reposé : meilleur butin pour cette pause"); } break;
     case "buy-potion": if (G.gold >= POTION_PRICE) { G.gold -= POTION_PRICE; G.potions++; } break;
+    case "buy-elixir": if (G.gold >= ELIXIR_PRICE) { G.gold -= ELIXIR_PRICE; G.elixirs++; } break;
+    case "buy-kit": if (G.gold >= KIT_PRICE) { G.gold -= KIT_PRICE; G.kits++; } break;
+    case "buy-item": { const s = G.shop && G.shop.items.find(x => x.id === id); if (s && G.gold >= buyPrice(s)) { G.gold -= buyPrice(s); G.shop.items = G.shop.items.filter(x => x !== s); giveItem(s); toast(`${esc(s.name)} ${G.equip[s.slot] === s.id ? "équipé" : "dans ton sac"}`); } break; }
+    case "repair": { const it = itemById(id); if (it && G.gold >= repairCost(it)) { G.gold -= repairCost(it); it.dur = it.durMax; toast(`${esc(it.name)} réparé`); } break; }
+    case "repair-all": { const c = repairAllCost(); if (c && G.gold >= c) { G.gold -= c; G.items.forEach(i => { i.dur = i.durMax; }); toast("Tout ton équipement est réparé"); } break; }
+    case "use-potion": if (G.potions) { G.potions--; G.hp = Math.min(maxHp(), (G.hp ?? maxHp()) + POTION_HEAL); } break;
+    case "use-elixir": if (G.elixirs) { G.elixirs--; G.hp = Math.min(maxHp(), (G.hp ?? maxHp()) + ELIXIR_HEAL); } break;
+    case "use-kit": if (G.kits) { G.kits--; ["weapon", "armor", "charm"].forEach(sl => { const it = eq(sl); if (it) it.dur = Math.min(it.durMax, it.dur + KIT_FIX); }); toast("Équipement rafistolé"); } break;
+    case "heal": healAtFountain(); return;
+    case "enter": closeSheet(); enterLevel(id); return;
+    case "leave": leaveTower(false); return;
+    case "back-floor": go("etage"); return;
+    case "bag": bagSheet(); return;
     case "equip": { const it = itemById(id); const ratio = (G.hp ?? maxHp()) / maxHp(); G.equip[it.slot] = id; G.hp = Math.max(1, Math.round(ratio * maxHp())); break; }
     case "upgrade": { const it = itemById(id); if (G.gold >= upCost(it) && it.lvl < 5) { G.gold -= upCost(it); it.lvl++; toast(`${esc(it.name)} +${it.lvl}`); } break; }
     case "sell": { const it = itemById(id); if (G.equip[it.slot] !== id) { G.gold += sellPrice(it); G.items = G.items.filter(x => x !== it); } break; }
@@ -2174,7 +3005,8 @@ document.addEventListener("click", e => {
     case "interact": doInteract(); return;
     default: return;
   }
-  save(); render();
+  save();
+  if (sheetRefresh && sheetOpen()) { renderHUD(); sheetRefresh(); } else render();
 });
 
 /* ================= Horloge : pause, énergie ================= */
@@ -2193,7 +3025,7 @@ function tick() {
       info("Pause terminée", `<p>Ta progression est sauvegardée. Retour au travail : le prochain focus te redonnera ${perCycle()} énergie.</p>`, ESSAI ? "Fermer" : "Retour à la todo list", () => { if (!ESSAI) location.href = "./#minuteur"; });
       return;
     }
-    if (!locked) scene = G.pos ? "etage" : "ville";
+    if (!locked) scene = G.lv ? "etage" : "ville";
     render();
     return;
   }
@@ -2214,6 +3046,14 @@ function essaiEdit(fn) {
   TODO = d; tick();
 }
 const essaiPause = d => { d.timer = { preset: "equilibre", phase: "pause", kind: "short", duration: 15 * 60000, startedAt: Date.now(), endAt: Date.now() + 15 * 60000, remaining: null, sinceLong: 0, earned: null }; };
+// Aperçu : un héros équipé comme après l'étage 1, pour essayer directement l'étage 2 ou la Halte
+function essaiKit() {
+  if (G.items.length) return;
+  [makeItem(2, "weapon", 1), makeItem(1, "armor", 1), makeItem(1, "charm", 1)].forEach(giveItem);
+  G.train = Math.max(G.train, 2); G.potions = Math.max(G.potions, 3); G.elixirs = Math.max(G.elixirs, 1); G.gold = Math.max(G.gold, 60);
+  G.hp = maxHp(); save();
+  toast("Aperçu : équipement d'un héros qui a fini l'étage 1");
+}
 function renderEssai() {
   const el = $("#essai"); if (!el) return;
   el.hidden = false;
@@ -2223,29 +3063,36 @@ function renderEssai() {
     <button class="btn small" data-act="essai-focus">+1 focus</button>
     <button class="btn small" data-act="essai-pause">Nouvelle pause</button>
     <button class="btn small ghost" data-act="essai-end">Finir la pause</button>
-    <button class="btn small ghost" data-act="essai-reset">Tout recommencer</button>`;
+    <button class="btn small ghost" data-act="essai-reset">Tout recommencer</button>
+    <label for="essai-tp" class="muted">Aller à</label>
+    <select id="essai-tp"><option value="">…</option><option value="e1">Étage 1</option><option value="e2">Étage 2</option><option value="h5">Halte 5</option></select>
+    <button class="btn small" data-act="essai-gold">+100 or</button>`;
 }
 if (ESSAI) {
   const back = document.querySelector('.hud-top a'); if (back) { back.removeAttribute("href"); back.textContent = "Aperçu"; back.setAttribute("aria-label", "Aperçu du jeu"); }
   if (!readTodo()) essaiEdit(essaiPause);
   renderEssai();
-  document.addEventListener("change", e => { if (e.target.id === "essai-rank") { essaiEdit(d => { d.xp = +e.target.value; }); if (!F) render(); renderEssai(); } });
+  document.addEventListener("change", e => {
+    if (e.target.id === "essai-rank") { essaiEdit(d => { d.xp = +e.target.value; }); if (!F) render(); renderEssai(); }
+    if (e.target.id === "essai-tp" && e.target.value) { const id = e.target.value; e.target.value = ""; if (locked) essaiEdit(essaiPause); G.energy = Math.max(G.energy, 6); G.best = Math.max(G.best, levelNum(id)); if (id === "h5") G.ckpt = Math.max(G.ckpt, 5); if (id !== "e1") essaiKit(); closeSheet(); C = null; G.lv = null; enterLevel(id); renderHUD(); }
+  });
   document.addEventListener("click", e => {
     const b = e.target.closest("[data-act^=essai]"); if (!b) return;
     const a = b.dataset.act;
     if (a === "essai-focus") essaiEdit(d => { const k = todayKey(); d.log[k] = d.log[k] || { focus: 0, pause: 0, cycles: 0 }; d.log[k].cycles++; d.log[k].focus += 50; });
     if (a === "essai-pause") essaiEdit(essaiPause);
+    if (a === "essai-gold") { G.gold += 100; save(); renderHUD(); if (sheetRefresh && sheetOpen()) sheetRefresh(); else if (!F) render(); }
     if (a === "essai-end") essaiEdit(d => { d.timer.endAt = Date.now() - 1; });
     if (a === "essai-reset") { try { localStorage.removeItem(GAME_KEY); } catch (err) {} closeSheet(); stopFloor(); loadGame(); scene = "ville"; essaiEdit(d => { essaiPause(d); d.log = {}; d.ach = {}; }); render(); }
   });
 }
 locked = !(pauseInfo() && !pauseInfo().held);
-if (!locked) { onNewPause(pauseInfo()); scene = G.pos ? "etage" : "ville"; }
+if (!locked) { onNewPause(pauseInfo()); scene = G.lv ? "etage" : "ville"; }
 syncEnergy();
 render();
 setInterval(tick, 500);
 // Accroche de test (jeu.html?debug) : utilisée seulement pour les tests automatisés.
-if (/[?&]debug\b/.test(location.search)) window.__quest = { get G() { return G; }, get F() { return F; }, get C() { return C; }, routeTo: (x, y) => routeTo(x, y), go, bfs, walkable, tileAt, spawnSlimes, applyAmbiance };
+if (/[?&]debug\b/.test(location.search)) window.__quest = { get G() { return G; }, get F() { return F; }, get C() { return C; }, get LV() { return LV; }, routeTo: (x, y) => routeTo(x, y), go, bfs, walkable, tileAt, spawnSlimes, applyAmbiance, enterLevel, interact, talk, meet, combatAct, completeQuest, LEVELS };
 
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
   try { navigator.serviceWorker.register("sw.js").catch(() => {}); } catch (e) {}
