@@ -618,7 +618,8 @@ function gltfLoader() {
   return GLTF_LOADER;
 }
 function loadPerso(name) {
-  if (!PERSO_CACHE[name]) PERSO_CACHE[name] = gltfLoader().then(L => L.loadAsync(PERSO_DIR + name + ".glb")).catch(e => { console.warn("Personnage indisponible", name, e); delete PERSO_CACHE[name]; return null; });
+  const embed = window.QUEST_PERSO_DATA && window.QUEST_PERSO_DATA[name];  // aperçu : modèles embarqués en base64
+  if (!PERSO_CACHE[name]) PERSO_CACHE[name] = gltfLoader().then(L => embed ? L.parseAsync(Uint8Array.from(atob(embed), c => c.charCodeAt(0)).buffer, "") : L.loadAsync(PERSO_DIR + name + ".glb")).catch(e => { console.warn("Personnage indisponible", name, e); delete PERSO_CACHE[name]; return null; });
   return PERSO_CACHE[name].then(g => g && { scene: SKEL.clone(g.scene), animations: g.animations });
 }
 function loadHeroAsset() { return Promise.all([loadPerso("chevalier"), loadPerso("clips")]).then(([g, c]) => g && c ? { g, c } : null); }
