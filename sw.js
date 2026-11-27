@@ -1,6 +1,6 @@
 // Quest : cache hors-ligne simple (réseau d'abord pour la page, cache en secours).
-const CACHE = "quest-v4";
-const ASSETS = ["./", "./index.html", "./jeu.html", "./vendor/three.module.min.js", "./vendor/loaders/GLTFLoader.js", "./vendor/utils/BufferGeometryUtils.js", "./vendor/utils/SkeletonUtils.js", "./vendor/libs/meshopt_decoder.module.js", "./assets/persos/chevalier.glb", "./assets/persos/clips.glb", "./assets/persos/paysanne.glb", "./assets/persos/maria.glb", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
+const CACHE = "quest-v5";
+const ASSETS = ["./", "./index.html", "./jeu.html", "./vendor/three.module.min.js", "./vendor/loaders/GLTFLoader.js", "./vendor/utils/BufferGeometryUtils.js", "./vendor/utils/SkeletonUtils.js", "./vendor/libs/meshopt_decoder.module.js", "./assets/persos/chevalier.glb", "./assets/persos/clips.glb", "./assets/persos/paysanne.glb", "./assets/persos/maria.glb", "./assets/persos/ouvrier.glb", "./assets/persos/citadin.glb", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); self.skipWaiting(); });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))));
