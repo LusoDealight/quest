@@ -188,6 +188,9 @@ body.floor main { padding: 0; position: relative; flex: 1; min-height: 0; displa
 .toast { background: var(--fg); color: var(--bg); padding: 7px 14px; border-radius: 99px; font-weight: 600; font-size: 14px; animation: tin .25s ease; text-align: center; }
 @keyframes tin { from { opacity: 0; transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  .jsec { display: grid; gap: 8px; }
+  .jsec > summary { cursor: pointer; padding: 8px 2px; list-style-position: inside; }
+  .jsec > summary b { font-size: 17px; }
 </style>
 </head><body>
 <div class="shell">
@@ -239,6 +242,13 @@ const ITEM_NAMES2 = { // à partir de l'étage 2
   armor:  ["Veste de feuilles", "Cuir de loup", "Cotte d'écorce", "Armure d'automne"],
   charm:  ["Gland porte-bonheur", "Plume de chouette", "Larme de résine", "Cœur de chêne"],
 };
+const ITEM_NAMES_P = { // à partir de l'étage 3, un jeu de noms par palier
+  1: { weapon: ["Serpe de ronce", "Arc de saule", "Épée sylvestre", "Lame de l'Ancien"], armor: ["Cape de mousse", "Brigandine de chêne", "Haubert de lierre", "Armure de l'Ancien"], charm: ["Gland d'argent", "Lanterne de poche", "Œil de grenouille d'or", "Cœur de l'Ancien"] },
+  2: { weapon: ["Piolet", "Lance de givre", "Épée de glace bleue", "Lame des tempêtes"], armor: ["Manteau de laine", "Fourrure de loup blanc", "Cotte de givre", "Armure du pic"], charm: ["Flocon éternel", "Clochette de berger", "Croc de mammouth", "Cœur du dragon des tempêtes"] },
+  3: { weapon: ["Cimeterre", "Lance de l'oasis", "Khépesh d'or", "Lame du soleil"], armor: ["Burnous", "Écailles de scorpion", "Cuirasse de grès", "Armure du Gardien solaire"], charm: ["Scarabée", "Fiole d'eau d'oasis", "Œil du Sphinx", "Cœur du soleil"] },
+  4: { weapon: ["Marteau de forge", "Hallebarde noire", "Épée d'obsidienne", "Lame du Dragon"], armor: ["Tablier ignifugé", "Cotte de mailles noire", "Plates de magma", "Armure du Dragon"], charm: ["Braise captive", "Rune de forge", "Écaille ardente", "Cœur de la Tour"] },
+};
+const itemNames = t => t <= 1 ? ITEM_NAMES : t === 2 ? ITEM_NAMES2 : ITEM_NAMES_P[Math.min(4, Math.ceil(t / 5))];
 const DUR_MAX = [20, 30, 40, 60];  // usure : nombre de combats avant de casser (Commun → Légendaire)
 const ELIXIR_PRICE = 20, ELIXIR_HEAL = 30, KIT_PRICE = 12, KIT_FIX = 10;
 const SLOT_NAME = { weapon: "Arme", armor: "Armure", charm: "Talisman" };
@@ -295,13 +305,13 @@ function newGame() {
     pauseId: null, rested: false, rest: null,
     pos: null, opts: { move: "auto", amb: "arcane", q: "haute" },
     q: { v: 2, acc: {}, done: {}, kills: 0, flowers: [], jelly: 0, rod: 0, cat: 0, riddle: false, moss: false, king: false, stairs: false, floor2: false },
-    q2: newQ2(),
+    q2: newQ2(), qf: {}, // qf : quêtes des étages 3 et plus, par étage
   };
 }
 function newQ2() { return { v: 1, acc: {}, done: {}, wolves: 0, shrooms: 0, spores: 0, got: [], fires: [], chest: false, bridge: false, sylvain: false, emile: 0, cerf: false }; }
 let G;
 function loadGame() {
-  try { const raw = localStorage.getItem(GAME_KEY); if (raw) { const d = JSON.parse(raw); G = Object.assign(newGame(), d); G.q = d.q && d.q.v === 2 ? Object.assign(newGame().q, d.q) : newGame().q; G.q2 = Object.assign(newQ2(), d.q2 || {}); fixItems(); return; } } catch (e) {}
+  try { const raw = localStorage.getItem(GAME_KEY); if (raw) { const d = JSON.parse(raw); G = Object.assign(newGame(), d); G.q = d.q && d.q.v === 2 ? Object.assign(newGame().q, d.q) : newGame().q; G.q2 = Object.assign(newQ2(), d.q2 || {}); G.qf = d.qf || {}; fixItems(); return; } } catch (e) {}
   G = newGame();
 }
 function fixItems() { // anciennes sauvegardes : objets sans usure
@@ -331,6 +341,7 @@ const maxTrain = () => 2 + rankIdx() * 2;
 const trainCost = () => 15 * (G.train + 1);
 function maxHp() { const c = eq("charm"); return 20 + 4 * rankIdx() + 3 * G.train + (working(c) ? itemStat(c).hp : 0); }
 function atk() { const w = eq("weapon"); return 2 + G.train + (working(w) ? itemStat(w).atk : 0) + (hasSkill(6) ? 2 : 0); }
+const potHeal = () => Math.max(POTION_HEAL, Math.round(maxHp() * 0.2)), elxHeal = () => Math.max(ELIXIR_HEAL, Math.round(maxHp() * 0.4));
 function def() { const a = eq("armor"); return working(a) ? itemStat(a).def : 0; }
 // Usure après un combat : l'arme si tu as frappé, l'armure si tu as été touché, le talisman à chaque combat.
 function wearAfterFight(hit, hurt, boss) {
@@ -370,7 +381,7 @@ function onNewPause(p) {
 function makeItem(rarity, slot, tier) {
   slot = slot || ["weapon", "armor", "charm"][rnd(0, 2)];
   tier = tier || levelNum();
-  const it = { id: uid(), slot, rarity, lvl: 0, tier, name: (tier > 1 ? ITEM_NAMES2 : ITEM_NAMES)[slot][rarity] };
+  const it = { id: uid(), slot, rarity, lvl: 0, tier, name: itemNames(tier)[slot][rarity] };
   it.durMax = it.dur = durMaxOf(it);
   return it;
 }
@@ -482,7 +493,7 @@ function viewTown() {
     <button class="place" data-go="taverne"><span class="ico">${ICONS.taverne}</span><div><h3>Taverne</h3><p>${G.rested ? "Tu es Reposé pour cette pause : meilleur butin." : "Une minute loin de l'écran avant de partir : bonus Reposé."}</p></div><span class="chip">${G.rested ? "Reposé" : "1 min"}</span></button>
     <button class="place" data-go="forge"><span class="ico">${ICONS.forge}</span><div><h3>Forge</h3><p>Équiper, améliorer ou vendre ton butin.</p></div><span class="chip num">${G.items.length} obj.</span></button>
     <button class="place" data-go="maitre"><span class="ico">${ICONS.maitre}</span><div><h3>Maître d'armes</h3><p>Entraînement et compétences de ton rang.</p></div><span class="chip num">Niv. ${G.train}</span></button>
-    <button class="place" data-go="journal"><span class="ico">${ICONS.journal}</span><div><h3>Journal de quêtes</h3><p>${G.best > 1 ? `Étage 1 : ${nDone} / 7 · Étage 2 : ${Object.keys(G.q2.done).length} / 10.` : q.floor2 ? "Étage 1 terminé." : nAcc ? `${nDone} / 7 quêtes terminées.` : "Les habitants du hameau ont besoin d'aide."}</p></div><span class="chip"></span></button>
+    <button class="place" data-go="journal"><span class="ico">${ICONS.journal}</span><div><h3>Journal de quêtes</h3><p>${G.best > 1 ? `Plus haut étage : ${G.best}. ${Object.values(LEVELS).reduce((a, L) => a + (L.QUESTS.length && levelNum(L.id) <= G.best ? Object.keys(L.qs().done).length : 0), 0)} quêtes terminées.` : q.floor2 ? "Étage 1 terminé." : nAcc ? `${nDone} / 7 quêtes terminées.` : "Les habitants du hameau ont besoin d'aide."}</p></div><span class="chip"></span></button>
     ${gateButtons()}
   </div>
   <p class="muted" style="font-size:13px;margin:0">La Tour se monte d'une traite : entre deux Haltes, pas de repos. Les PV ne remontent qu'avec les infusions, et l'équipement s'use. Tous les 5 étages, une Halte permet de se soigner, commercer et réparer. Si tu ressors ou tombes, tu repars de ta dernière Halte.</p>`;
@@ -518,10 +529,10 @@ function viewTavern() {
   <div class="title-row"><div><h2>Taverne</h2><div class="muted">Le tavernier sert une infusion, et un conseil : décroche vraiment.</div></div></div>
   ${body}
   <div class="panel"><h3>Infusion de la prairie</h3>
-    <p class="muted" style="margin:0">Rend ${POTION_HEAL} PV. Tu en as <b class="num">${G.potions}</b>.</p>
+    <p class="muted" style="margin:0">Rend ${potHeal()} PV. Tu en as <b class="num">${G.potions}</b>.</p>
     <div><button class="btn" data-act="buy-potion" ${G.gold < POTION_PRICE ? "disabled" : ""}>Acheter · ${POTION_PRICE} or</button></div></div>
   <div class="panel"><h3>Élixir du tavernier</h3>
-    <p class="muted" style="margin:0">Rend ${ELIXIR_HEAL} PV. Utile pour enchaîner les étages sans repos. Tu en as <b class="num">${G.elixirs}</b>.</p>
+    <p class="muted" style="margin:0">Rend ${elxHeal()} PV. Utile pour enchaîner les étages sans repos. Tu en as <b class="num">${G.elixirs}</b>.</p>
     <div><button class="btn" data-act="buy-elixir" ${G.gold < ELIXIR_PRICE ? "disabled" : ""}>Acheter · ${ELIXIR_PRICE} or</button></div></div>`;
 }
 // Liste d'objets partagée : Forge de la Ville, forgeron de la Halte (o.repair), marchande (o.sell), sac (o.bag)
@@ -597,15 +608,16 @@ function questLines(L = LV) {
     ${open ? `<p class="muted" style="margin:0">${open} autre${open > 1 ? "s" : ""} quête${open > 1 ? "s" : ""} à découvrir sur l'étage.</p>` : ""}`;
 }
 function viewJournal() {
-  const q = G.q;
-  const e2 = G.best > 1 ? `<div class="title-row"><div><h2 style="font-size:20px">Étage 2 · La forêt d'automne</h2><div class="muted">${Object.keys(G.q2.done).length} / ${LEVELS.e2.QUESTS.length} terminées</div></div></div>
-  <div class="panel">${questLines(LEVELS.e2)}</div>` : "";
+  const q = G.q, best = Math.min(G.best || 1, 99);
+  // l'étage le plus haut atteint en premier, ouvert ; les autres repliés
+  const ids = []; for (let n = best; n >= 2; n--) if (LEVELS["e" + n]) ids.push("e" + n);
+  const sec = (L, open) => { const qq = L.qs(); return `<details class="jsec" ${open ? "open" : ""}><summary><b>${esc(L.name)}</b> <span class="muted">· ${Object.keys(qq.done).length} / ${L.QUESTS.length}</span></summary><div class="panel">${questLines(L)}</div>${L.journalExtra ? L.journalExtra(qq) : ""}</details>`; };
   return `<button class="btn ghost back" data-go="ville">← La Ville</button>
-  ${e2}
-  <div class="title-row"><div><h2${e2 ? ` style="font-size:20px"` : ""}>${e2 ? "Étage 1 · La prairie" : "Journal de quêtes"}</h2><div class="muted">${e2 ? "" : "Étage 1 · La prairie · "}${Object.keys(q.done).length} / ${QUESTS1.length} terminées</div></div></div>
-  <div class="panel">${questLines(LEVELS.e1)}</div>
+  <div class="title-row"><div><h2>Journal de quêtes</h2><div class="muted">${best > 1 ? `Plus haut étage atteint : ${best}.` : "Étage 1 · La prairie"}</div></div></div>
+  ${ids.map((id, i) => sec(LEVELS[id], i === 0)).join("")}
+  <details class="jsec" ${best > 1 ? "" : "open"}><summary><b>Étage 1 · La prairie</b> <span class="muted">· ${Object.keys(q.done).length} / ${QUESTS1.length}</span></summary><div class="panel">${questLines(LEVELS.e1)}</div>
   ${q.king && !q.stairs ? `<div class="hint">Le Roi a laissé tomber un bout de carte : « Derrière l'eau qui tombe, la falaise est creuse. »</div>` : ""}
-  ${q.stairs ? `<div class="hint">L'escalier caché est derrière la cascade, au nord-ouest.</div>` : ""}`;
+  ${q.stairs ? `<div class="hint">L'escalier caché est derrière la cascade, au nord-ouest.</div>` : ""}</details>`;
 }
 function viewSoon() {
   const n = levelNum();
@@ -613,7 +625,7 @@ function viewSoon() {
     <p>L'escalier continue de monter dans la pierre… mais cette partie de la Tour est encore en construction. Elle arrive dans une prochaine version.</p>
     <p class="muted">Ta montée est gardée : tu restes sur l'étage ${n} en attendant.</p>
     <button class="btn primary" data-act="back-floor">Retourner sur l'étage ${n}</button>
-    ${ESSAI ? `<button class="btn" data-act="enter" data-id="h5">Aperçu : visiter la Halte du palier 5</button>` : ""}</div>`;
+    </div>`;
 }
 
 /* ================= Étage 1 : la carte ================= */
@@ -1106,7 +1118,11 @@ function resizePost() {
 }
 function applyAmbiance() {
   if (!F || !F.scene) return;
-  const A = AMBIANCES[ambKey()], S = F.scene;
+  const A0 = AMBIANCES[ambKey()], S = F.scene, T = LV.sky;
+  // teinte propre au lieu (neige, désert, volcan…) mêlée à l'ambiance choisie
+  const A = !T ? A0 : (() => { const k = T.k ?? 0.55, mix = (a, b) => b ? "#" + new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString() : a;
+    return { ...A0, sky: [mix(A0.sky[0], T.top), mix(A0.sky[1], T.mid), mix(A0.sky[2], T.low)], fog: [mix(A0.fog[0], T.fog), A0.fog[1], A0.fog[2]], hemi: [A0.hemi[0], mix(A0.hemi[1], T.ground), A0.hemi[2]],
+      motes: T.motes ? { ...(A0.motes || { n: 100, size: 0.07, bright: 1.6, rise: 0.05, blink: 0.5 }), ...T.motes } : A0.motes }; })();
   F.amb = A;
   const u = F.sky.material.uniforms;
   u.cTop.value.set(A.sky[0]); u.cMid.value.set(A.sky[1]); u.cLow.value.set(A.sky[2]);
@@ -1205,6 +1221,7 @@ function buildScene() {
   ground.receiveShadow = true; scene.add(ground); F.ground = ground;
   const water = new THREE.Mesh(new THREE.PlaneGeometry(MW + 1, MH + 1, 1, 1), new THREE.MeshStandardMaterial({ color: "#4fa8de", roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.8 }));
   water.rotation.x = -Math.PI / 2; at(water, MW / 2 - 0.5, -0.14, MH / 2 - 0.5); scene.add(water); F.water = water;
+  if (P.lava) { water.material.emissive.set(P.lava); water.material.emissiveIntensity = 0.9; water.material.opacity = 1; water.material.transparent = false; } // fleuve de lave
   // falaises : colonnes de roche à facettes, coiffées d'herbe
   const cliffH = t => 2.2 + ((t.x * 31 + t.y * 17) % 5) * 0.25 + Math.max(0, 7 - t.y) * 0.15 + (P.cliffUp || 0);
   scene.add(instanced(new THREE.CylinderGeometry(0.62, 0.72, 1, 7, 3), mat(P.rock || "#8f8573"), tiles.cliff, t => ({ p: [t.x, cliffH(t) / 2 - 0.1, t.y], s: [1, cliffH(t), 1], ry: (t.x * 7 + t.y) % 6, c: ((t.x + t.y) % 2) ? (P.rock2 || "#958a76") : (P.rock || "#867b69") })));
@@ -1237,7 +1254,7 @@ function buildScene() {
     const lg = new THREE.CircleGeometry(0.07, 5); lg.rotateX(-Math.PI / 2);
     scene.add(instanced(lg, mat("#ffffff"), lv, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.015, b.y], ry: rnd01() * 6, s: [1, 1, 1.6], c: P.leaves[Math.floor(rnd01() * P.leaves.length)] })));
   } else {
-    scene.add(instanced(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 3), addWind(mat("#3c8a45"), 0.7), petals, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.08, b.y] })));
+    scene.add(instanced(new THREE.CylinderGeometry(0.008, 0.008, 0.16, 3), addWind(mat(P.stem || "#3c8a45"), 0.7), petals, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.08, b.y] })));
     scene.add(instanced(new THREE.IcosahedronGeometry(0.06, 1), addWind(mat("#ffffff"), 0.7), petals, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.17, b.y], s: [1, 0.55, 1], c: (P.petal || ["#f6f6f6", "#f08bb4", "#f5d04a", "#b9a2f0"])[Math.floor(rnd01() * 4)] })));
   }
   // nénuphars
@@ -1893,7 +1910,7 @@ function draw(now, dt) {
   LV.draw(now, dt, h);
   if (F.tapMark) { const k = 1 - (now - F.tapT) / 700; F.tapMark.visible = k > 0; F.tapMark.material.opacity = Math.max(0, k); F.tapMark.scale.setScalar(1 + (1 - Math.max(0, k)) * 0.6); }
   F.portalGlow.material.opacity = 0.55 + Math.sin(now / 500) * 0.2;
-  if (F.water.material) F.water.material.color.setHSL(F.amb.water[0], F.amb.water[1], F.amb.water[2] + Math.sin(now / 1500) * 0.03);
+  if (F.water.material) { const wv = (LV.pal && LV.pal.water) || F.amb.water; F.water.material.color.setHSL(wv[0], wv[1], wv[2] + Math.sin(now / 1500) * 0.03); }
   // caméra et soleil
   let wy = F.yaw, wp = F.pitch, wd = F.zoom, goal;
   if (C && C.sl) {
@@ -2293,9 +2310,9 @@ function combatAct(a) {
   } else if (a === "garde") {
     C.guard = true; C.used.garde = true; C.streak = 0; C.log.push("Tu lèves ta garde.");
   } else if (a === "potion") {
-    G.potions--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + POTION_HEAL); C.streak = 0; C.log.push(`Infusion : +${G.hp - before} PV.`);
+    G.potions--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + potHeal()); C.streak = 0; C.log.push(`Infusion : +${G.hp - before} PV.`);
   } else if (a === "elixir") {
-    G.elixirs--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + ELIXIR_HEAL); C.streak = 0; C.log.push(`Élixir : +${G.hp - before} PV.`);
+    G.elixirs--; const before = G.hp; G.hp = Math.min(maxHp(), G.hp + elxHeal()); C.streak = 0; C.log.push(`Élixir : +${G.hp - before} PV.`);
   } else if (a === "fuir") {
     if (C.f.cost > 1 && !hasSkill(5) ? Math.random() < 0.4 : (hasSkill(5) || Math.random() < 0.6)) {
       C.sl.cool = performance.now() + 3000; F.hero.path = []; C.sl.hold = null; pushBack(C.sl);
@@ -2372,8 +2389,8 @@ function bagSheet() {
   sheet(`<h2>Sac</h2>
     <div class="statline"><span><span class="label">PV</span><br><b class="num">${hp} / ${mh}</b></span><span><span class="label">Attaque</span><br><b class="num">${atk()}</b></span><span><span class="label">Défense</span><br><b class="num">${def()}</b></span>${G.regen ? `<span><span class="label">Bénédiction</span><br><b style="color:var(--accent)">Régénération</b></span>` : ""}</div>
     <div class="cacts">
-      <button class="btn" data-act="use-potion" ${G.potions && hp < mh ? "" : "disabled"}>Infusion +${POTION_HEAL} PV (${G.potions})</button>
-      <button class="btn" data-act="use-elixir" ${G.elixirs && hp < mh ? "" : "disabled"}>Élixir +${ELIXIR_HEAL} PV (${G.elixirs})</button>
+      <button class="btn" data-act="use-potion" ${G.potions && hp < mh ? "" : "disabled"}>Infusion +${potHeal()} PV (${G.potions})</button>
+      <button class="btn" data-act="use-elixir" ${G.elixirs && hp < mh ? "" : "disabled"}>Élixir +${elxHeal()} PV (${G.elixirs})</button>
       <button class="btn" data-act="use-kit" ${G.kits && G.items.some(i => G.equip[i.slot] === i.id && i.dur < i.durMax) ? "" : "disabled"}>Trousse : +${KIT_FIX} de durabilité (${G.kits})</button>
     </div>
     ${itemsHtml({ bag: 1 })}
@@ -2745,10 +2762,10 @@ function shopStock() {
 function shopSheet() {
   const its = shopStock();
   const row = (act, name, txt, price) => `<li class="item"><div><div class="nm">${name}</div><div class="st">${txt}</div></div><div class="bt"><button class="btn small" data-act="${act}" ${G.gold < price ? "disabled" : ""}>Acheter · ${price} or</button></div></li>`;
-  sheet(`<h2>L'étal de Mira</h2><p class="muted" style="margin:0">« Tout ce qu'il faut pour les cinq prochains étages ! » Tu as <b class="num">${G.gold}</b> or.</p>
+  sheet(`<h2>L'étal de ${esc(NPCS.mira.name.split(",")[0])}</h2><p class="muted" style="margin:0">« Tout ce qu'il faut pour les cinq prochains étages ! » Tu as <b class="num">${G.gold}</b> or.</p>
     <div class="panel"><h3>Matériel</h3><ul class="items">
-      ${row("buy-potion", "Infusion", `+${POTION_HEAL} PV · tu en as ${G.potions}`, POTION_PRICE)}
-      ${row("buy-elixir", "Élixir", `+${ELIXIR_HEAL} PV · tu en as ${G.elixirs}`, ELIXIR_PRICE)}
+      ${row("buy-potion", "Infusion", `+${potHeal()} PV · tu en as ${G.potions}`, POTION_PRICE)}
+      ${row("buy-elixir", "Élixir", `+${elxHeal()} PV · tu en as ${G.elixirs}`, ELIXIR_PRICE)}
       ${row("buy-kit", "Trousse de réparation", `+${KIT_FIX} de durabilité à l'équipement porté · tu en as ${G.kits}`, KIT_PRICE)}
     </ul></div>
     <div class="panel"><h3>Équipement</h3>${its.length ? `<ul class="items">${its.map(it => `<li class="item"><div><div class="nm rar-${it.rarity}">${esc(it.name)}</div><div class="st">${RARITY[it.rarity]} · ${SLOT_NAME[it.slot]} · ${statText(it)} · durabilité ${it.durMax}</div></div>
@@ -2759,7 +2776,7 @@ function shopSheet() {
   $("#shop-ok").onclick = closeSheet;
 }
 function forgeSheet() {
-  sheet(`<h2>La forge de Hugo</h2><p class="muted" style="margin:0">« Une lame bien entretenue en vaut deux. » Attaque ${atk()} · Défense ${def()} · PV max ${maxHp()}</p>
+  sheet(`<h2>La forge de ${esc(NPCS.hugo.name.split(",")[0])}</h2><p class="muted" style="margin:0">« Une lame bien entretenue en vaut deux. » Attaque ${atk()} · Défense ${def()} · PV max ${maxHp()}</p>
     ${repairBar()}${itemsHtml({ repair: 1, upgrade: 1 })}
     <button class="btn primary" id="forge-ok" data-focus>Fermer</button>`, { dismiss: true, refresh: forgeSheet });
   $("#forge-ok").onclick = closeSheet;
@@ -2786,18 +2803,18 @@ LEVELS.h5 = {
   houses: [{ x0: 20, y0: 19, x1: 22, y1: 21, roof: "#2f9c98", wall: "#f1e6cc" }],
   qs: () => ({ acc: {}, done: {} }), block: "TC~oHwFNG", near: { F: "fontaine", N: "etal", G: "forge", w: "feu", H: "maison" },
   labels: { fontaine: "Boire à la fontaine", etal: "Voir l'étal", forge: "Voir la forge", feu: "S'asseoir au feu", maison: "Entrer à l'auberge" },
-  firstTip: "Une Halte : la fontaine soigne, Mira vend et achète, Hugo répare. Ta montée repartira d'ici.", firstHint: "",
+  get firstTip() { return `Une Halte : la fontaine soigne, ${NPCS.mira.name.split(",")[0]} vend et achète, ${NPCS.hugo.name.split(",")[0]} répare. Ta montée repartira d'ici.`; }, firstHint: "",
   intros: {}, idle: {},
   talk: k => { if (k === "isaure") healAtFountain(); else if (k === "mira") shopSheet(); else forgeSheet(); return true; },
   interact: w => {
     if (w === "fontaine") return healAtFountain();
     if (w === "etal") return shopSheet();
     if (w === "forge") return forgeSheet();
-    if (w === "feu") return info("Le feu de la Halte", "<p>Tu t'assieds un instant. Ici, la Tour te laisse souffler. Au-dessus, l'escalier continue vers l'étage 6.</p>");
+    if (w === "feu") return info("Le feu de la Halte", `<p>Tu t'assieds un instant. Ici, la Tour te laisse souffler. Au-dessus, l'escalier continue vers l'étage ${levelNum(LV.id) + 1}.</p>`);
     if (w === "maison") return info("L'auberge du belvédère", "<p>« Complet ! » crie l'aubergiste. « Mais la fontaine soigne, et c'est gratuit. »</p>");
   },
   build: buildH, draw: drawH, spawn: () => [], roam: () => false,
-  hint: () => (G.hp ?? maxHp()) < maxHp() ? "Bois à la fontaine pour te soigner et recevoir la Régénération." : "Mira vend et achète, Hugo répare. L'escalier du nord mène à l'étage 6.",
+  hint: () => (G.hp ?? maxHp()) < maxHp() ? "Bois à la fontaine pour te soigner et recevoir la Régénération." : `${NPCS.mira.name.split(",")[0]} vend et achète, ${NPCS.hugo.name.split(",")[0]} répare. L'escalier du nord mène à l'étage ${levelNum(LV.id) + 1}.`,
   objective: () => (G.hp ?? maxHp()) < maxHp() || !G.regen ? { x: 15, y: 15 } : null,
   looks: {
     isaure: { body: "#e8f0f8", skin: "#f1d7c0", hair: "#e8e0c8", dress: true, cheek: "#f0c0c0" },
@@ -2810,10 +2827,10 @@ LEVELS.h5 = {
 };
 
 /* ---------- Modèles de l'étage 2 et des Haltes ---------- */
-function makeShroom() {
+function makeShroom(capCol = "#c8473a") {
   const g = new THREE.Group(), body = new THREE.Group(), cream = sm("#f2e6cc"), dark = sm("#1c2a22", { r: 0.2 });
   body.add(mesh(new THREE.CylinderGeometry(0.15, 0.2, 0.42, 14), cream, 0, 0.23, 0));
-  const capm = mesh(new THREE.SphereGeometry(0.38, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), sm("#c8473a", { r: 0.5 }), 0, 0.4, 0); capm.scale.y = 0.75; body.add(capm);
+  const capm = mesh(new THREE.SphereGeometry(0.38, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), sm(capCol, { r: 0.5 }), 0, 0.4, 0); capm.scale.y = 0.75; body.add(capm);
   for (let i = 0; i < 7; i++) { const a = i * 2.4, r = i ? 0.24 : 0; body.add(mesh(sph(0.05, 8, 6), sm("#fff8ea"), Math.cos(a) * r, 0.66 - r * 0.45, Math.sin(a) * r)); }
   [-0.07, 0.07].forEach(x => { body.add(mesh(sph(0.04, 10, 8), sm("#ffffff", { r: 0.3 }), x, 0.3, 0.16)); body.add(mesh(sph(0.022, 8, 6), dark, x, 0.3, 0.195)); });
   [-0.09, 0.09].forEach(x => body.add(mesh(sph(0.07, 10, 8), cream, x, 0.04, 0.04)));
@@ -2840,30 +2857,40 @@ function makeQuad(o) {
       hd.add(a);
     });
   }
+  if (o.tusks) [-0.05, 0.05].forEach(x => { const t = mesh(new THREE.ConeGeometry(0.025 * k, 0.16 * k, 6), sm("#f2ead8"), x * k, -0.08 * k, 0.28 * k); t.rotation.x = -0.6; hd.add(t); });
+  if (o.horns) [-1, 1].forEach(sd => { const hn = mesh(new THREE.ConeGeometry(0.045 * k, 0.32 * k, 7), sm(o.hornCol || "#d8ccb0", { r: 0.5 }), sd * 0.09 * k, 0.16 * k, -0.08 * k); hn.rotation.set(-0.9, 0, -sd * 0.35); hd.add(hn); });
   body.add(hd);
+  if (o.spikes) for (let i = 0; i < 5; i++) body.add(mesh(new THREE.ConeGeometry(0.05 * k, 0.16 * k, 5), dark, 0, 0.74 * k, (0.26 - i * 0.14) * k));
+  if (o.glow) { const gm = new THREE.MeshBasicMaterial({ color: o.glow }); for (let i = 0; i < 4; i++) body.add(at(new THREE.Mesh(sph(0.035 * k, 8, 6), gm), (i % 2 ? 0.08 : -0.08) * k, 0.72 * k, (0.2 - i * 0.13) * k)); }
+  let wings = null;
+  if (o.wings) {
+    const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(0.9, 0.35); sh.lineTo(0.75, -0.05); sh.lineTo(0.55, 0.05); sh.lineTo(0.42, -0.12); sh.lineTo(0.25, -0.02); sh.lineTo(0, -0.18);
+    const wm = new THREE.MeshStandardMaterial({ color: o.wings, side: THREE.DoubleSide, roughness: 0.8 });
+    wings = [-1, 1].map(sd => { const w = new THREE.Group(); w.position.set(sd * 0.12 * k, 0.72 * k, 0.12 * k); const m = new THREE.Mesh(new THREE.ShapeGeometry(sh), wm); m.scale.set(sd * k, k, k); m.rotation.x = -Math.PI / 2; m.castShadow = true; w.add(m); body.add(w); return w; });
+  }
   const legs = [[-0.11, 0.24], [0.11, 0.24], [-0.11, -0.24], [0.11, -0.24]].map(([x, z]) => { const l = new THREE.Group(); l.position.set(x * k, 0.45 * k, z * k); l.add(mesh(new THREE.CylinderGeometry(0.045 * k, 0.035 * k, (o.legs || 0.42) * k, 6), dark, 0, -(o.legs || 0.42) * k / 2, 0)); body.add(l); return l; });
   const tail = new THREE.Group(); tail.position.set(0, 0.62 * k, -0.42 * k); const tm = mesh(cap(0.05 * k, (o.tail || 0.26) * k), fur, 0, 0, -0.12 * k); tm.rotation.x = -1.0; tail.add(tm); body.add(tail);
   if (o.legs) body.position.y = (o.legs - 0.42) * k;
   g.add(body); g.userData.body = body;
-  g.userData.gait = (t, mv) => { const a = mv ? Math.sin(t * 9) * 0.55 : 0; legs[0].rotation.x = a; legs[3].rotation.x = a; legs[1].rotation.x = -a; legs[2].rotation.x = -a; body.rotation.x = mv ? Math.sin(t * 18) * 0.03 : 0; hd.rotation.x = mv ? 0 : Math.sin(t * 1.3) * 0.08; tail.rotation.y = Math.sin(t * 4) * 0.4; };
+  g.userData.gait = (t, mv) => { const a = mv ? Math.sin(t * 9) * 0.55 : 0; legs[0].rotation.x = a; legs[3].rotation.x = a; legs[1].rotation.x = -a; legs[2].rotation.x = -a; body.rotation.x = mv ? Math.sin(t * 18) * 0.03 : 0; hd.rotation.x = mv ? 0 : Math.sin(t * 1.3) * 0.08; tail.rotation.y = Math.sin(t * 4) * 0.4; if (wings) { const f = 0.35 + Math.sin(t * (mv ? 7 : 2.2)) * 0.35; wings[0].rotation.z = f; wings[1].rotation.z = -f; } };
   g.scale.setScalar(o.scale || 1);
   return g;
 }
 const makeWolf = (fur, dark, black) => makeQuad({ fur, dark, snout: black ? "#2e2a33" : "#b8b9bc", eye: black ? "#ff5a3a" : "#ffd23a", ears: true, k: 1, scale: black ? 1.15 : 1 });
 const makeStag = () => makeQuad({ fur: "#a8743a", dark: "#5a3a22", snout: "#d9b890", eye: "#fff2b0", antlers: true, k: 1, legs: 0.6, tail: 0.12, scale: 1.75 });
-function makeTreant() {
-  const g = new THREE.Group(), body = new THREE.Group(), bark = mat("#5a3a24"), bark2 = mat("#6b4a2b");
+function makeTreant(o = {}) {
+  const g = new THREE.Group(), body = new THREE.Group(), bark = mat(o.bark || "#5a3a24"), bark2 = mat(o.bark2 || "#6b4a2b");
   body.add(mesh(new THREE.CylinderGeometry(0.32, 0.48, 1.3, 9, 3), bark, 0, 0.65, 0));
   for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2, r = mesh(new THREE.ConeGeometry(0.12, 0.7, 6), bark2, Math.cos(a) * 0.45, 0.12, Math.sin(a) * 0.45); r.rotation.z = Math.cos(a) * 1.2; r.rotation.x = -Math.sin(a) * 1.2; body.add(r); }
   [-1, 1].forEach(sd => { const arm = new THREE.Group(); arm.position.set(sd * 0.3, 1.0, 0); arm.rotation.z = sd * -1.0; arm.add(mesh(new THREE.CylinderGeometry(0.06, 0.1, 0.8, 6), bark2, 0, 0.4, 0)); const tw = mesh(new THREE.CylinderGeometry(0.03, 0.05, 0.4, 5), bark2, sd * 0.12, 0.75, 0); tw.rotation.z = sd * 0.7; arm.add(tw); body.add(arm); });
-  const eye = sm("#d9ff7a", { em: "#b0ff3a", ei: 1.2 });
+  const eye = sm(o.eye || "#d9ff7a", { em: o.eye || "#b0ff3a", ei: 1.2 });
   [-0.12, 0.12].forEach(x => body.add(mesh(sph(0.06, 10, 8), eye, x, 0.95, 0.33)));
   body.add(at(box(0.22, 0.08, 0.06, mat("#1f1712")), 0, 0.75, 0.38));
-  const leaves = ["#d9822b", "#c0492b", "#e0a83a"];
+  const leaves = o.leaves || ["#d9822b", "#c0492b", "#e0a83a"];
   [[0, 1.6, 0, 0.6], [0.35, 1.45, 0.1, 0.42], [-0.32, 1.5, -0.1, 0.45], [0.05, 1.95, -0.05, 0.4]].forEach(([x, y, z, r], i) => { const c = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), mat(leaves[i % 3])); c.castShadow = true; body.add(at(c, x, y, z)); });
   g.add(body); g.userData.body = body;
   g.userData.gait = t => { body.rotation.z = Math.sin(t * 1.3) * 0.04; };
-  g.scale.setScalar(1.25);
+  g.scale.setScalar(o.scale || 1.25);
   return g;
 }
 function makeCampfire() {
@@ -2893,20 +2920,20 @@ function makeChest() {
   lid.add(at(box(0.12, 0.12, 0.06, gold), 0, 0.02, 0.52));
   g.add(lid); g.userData.lid = lid; return g;
 }
-function makeBridge2() {
-  const g = new THREE.Group(), wood = mat("#a87344"), dark = mat("#7a5230");
-  for (let i = 0; i < 15; i++) { const z = 29.4 + i * 0.23; const p = at(box(1, 0.08, 0.2, wood), 28, 0.06, z); p.userData.mid = i > 2 && i < 12; g.add(p); }
-  [27.55, 28.45].forEach(x => { const r = at(box(0.06, 0.08, 3.5, dark), x, 0.5, 31); r.userData.mid = true; g.add(r); [29.5, 31, 32.5].forEach(z => { const post = at(box(0.08, 0.5, 0.08, dark), x, 0.25, z); post.userData.mid = z === 31; g.add(post); }); });
+function makeBridge2(bx = 28, rv = 30, woodC = "#a87344", darkC = "#7a5230") {
+  const g = new THREE.Group(), wood = mat(woodC), dark = mat(darkC);
+  for (let i = 0; i < 15; i++) { const z = rv - 0.6 + i * 0.23; const p = at(box(1, 0.08, 0.2, wood), bx, 0.06, z); p.userData.mid = i > 2 && i < 12; g.add(p); }
+  [bx - 0.45, bx + 0.45].forEach(x => { const r = at(box(0.06, 0.08, 3.5, dark), x, 0.5, rv + 1); r.userData.mid = true; g.add(r); [rv - 0.5, rv + 1, rv + 2.5].forEach(z => { const post = at(box(0.08, 0.5, 0.08, dark), x, 0.25, z); post.userData.mid = z === rv + 1; g.add(post); }); });
   return g;
 }
-function makeBrambles() {
+function makeBrambles(x0 = 27, gy = 14) {
   const g = new THREE.Group(), vine = mat("#5a2a22"), thorn = mat("#2f1a16");
-  for (let x = 27; x <= 29; x++) for (let i = 0; i < 7; i++) {
+  for (let x = x0; x <= x0 + 2; x++) for (let i = 0; i < 7; i++) {
     const c = new THREE.Mesh(new THREE.TorusGeometry(0.28 + rnd01() * 0.15, 0.05, 5, 12), vine); c.castShadow = true;
-    c.rotation.set(rnd01() * 3, rnd01() * 3, rnd01() * 3); g.add(at(c, x + (rnd01() - .5) * 0.6, 0.3 + rnd01() * 1.0, 14 + (rnd01() - .5) * 0.5));
-    g.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 4), thorn), x + (rnd01() - .5) * 0.8, 0.3 + rnd01() * 1.1, 14 + (rnd01() - .5) * 0.6));
+    c.rotation.set(rnd01() * 3, rnd01() * 3, rnd01() * 3); g.add(at(c, x + (rnd01() - .5) * 0.6, 0.3 + rnd01() * 1.0, gy + (rnd01() - .5) * 0.5));
+    g.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 4), thorn), x + (rnd01() - .5) * 0.8, 0.3 + rnd01() * 1.1, gy + (rnd01() - .5) * 0.6));
   }
-  for (let i = 0; i < 9; i++) g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), mat("#8f1f2a")), 27 + rnd01() * 2, 0.5 + rnd01() * 0.9, 14 + (rnd01() - .5) * 0.5));
+  for (let i = 0; i < 9; i++) g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), mat("#8f1f2a")), x0 + rnd01() * 2, 0.5 + rnd01() * 0.9, gy + (rnd01() - .5) * 0.5));
   return g;
 }
 function makeArch() {
@@ -2918,12 +2945,12 @@ function makeArch() {
   for (let i = 0; i < 3; i++) g.add(at(box(1.1, 0.12, 0.3, st), 0, 0.06 + i * 0.12, -0.2 - i * 0.3));
   return g;
 }
-function makeWillow() {
+function makeWillow(leafC = "#b8a040", crownC = "#c9a83a") {
   const g = new THREE.Group(), bark = mat("#4a3a2a");
   g.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.45, 2.2, 8), bark), 0, 1.1, 0));
-  const m = addWind(mat("#b8a040", { flat: false }), 0.6);
+  const m = addWind(mat(leafC, { flat: false }), 0.6);
   for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; const c = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.6, 6, 1, true), m); c.material.side = THREE.DoubleSide; c.castShadow = true; g.add(at(c, Math.cos(a) * 0.9, 1.6, Math.sin(a) * 0.9)); }
-  g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(1.2, 1), mat("#c9a83a")), 0, 2.6, 0));
+  g.add(at(new THREE.Mesh(new THREE.IcosahedronGeometry(1.2, 1), mat(crownC)), 0, 2.6, 0));
   return g;
 }
 function makePickup(k) {
@@ -2966,6 +2993,676 @@ function makeForge() {
   g.add(at(anvil, -0.8, 0, 0.3));
   return g;
 }
+/* ================= Étages 3 à 20 : générateur d'étages à thème ================= */
+// Chaque étage suit le canevas de l'étage 2 : camp au sud, une rivière et son passage à réparer, des ruines à braseros,
+// une zone sauvage gardée par un mini-boss qui ouvre le nord, et le gardien de l'escalier. Carte, décor, monstres,
+// habitants et quêtes changent selon le palier (biome) et l'étage. Tout est généré à partir d'une graine fixe par étage.
+
+/* ---- Nouveaux modèles de monstres ---- */
+function makeWisp(col, core, k = 1) {
+  const g = new THREE.Group(), body = new THREE.Group();
+  const m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, depthWrite: false });
+  body.add(new THREE.Mesh(sph(0.32, 16, 12), m));
+  body.add(new THREE.Mesh(sph(0.17, 12, 10), new THREE.MeshBasicMaterial({ color: core })));
+  const fl = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.62, 10, 1, true), m); fl.position.y = 0.4; body.add(fl);
+  [-0.09, 0.09].forEach(x => body.add(mesh(sph(0.04, 8, 6), sm("#1c1a2e"), x, 0.05, 0.28)));
+  for (let i = 0; i < 3; i++) { const t = new THREE.Mesh(sph(0.06, 8, 6), m); t.userData.a = i * 2.1; body.add(t); }
+  g.add(body); g.userData.body = body; g.scale.setScalar(k);
+  g.userData.gait = t => {
+    body.position.y = 0.75 + Math.sin(t * 2.4) * 0.12; fl.scale.y = 1 + Math.sin(t * 9) * 0.15; body.rotation.y = Math.sin(t) * 0.3;
+    body.children.forEach(c => { if (c.userData.a != null) { const a = c.userData.a + t * 2; c.position.set(Math.cos(a) * 0.45, Math.sin(a * 1.3) * 0.15, Math.sin(a) * 0.45); } });
+  };
+  return g;
+}
+function makeGolem(o) {
+  const g = new THREE.Group(), body = new THREE.Group(), r1 = mat(o.rock), r2 = mat(o.rock2), eye = new THREE.MeshBasicMaterial({ color: o.eye });
+  const torso = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 0), r1); torso.scale.set(1.15, 1, 0.85); torso.castShadow = true; body.add(at(torso, 0, 1.0, 0));
+  const hd = box(0.34, 0.28, 0.3, r2); body.add(at(hd, 0, 1.52, 0.04));
+  [-0.08, 0.08].forEach(x => body.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.045, 0.02), eye), x, 1.54, 0.2)));
+  const arms = [-1, 1].map(sd => { const a = new THREE.Group(); a.position.set(sd * 0.54, 1.25, 0);
+    a.add(new THREE.Mesh(new THREE.DodecahedronGeometry(0.18, 0), r2)); a.add(at(box(0.22, 0.6, 0.22, r1), 0, -0.38, 0));
+    const fist = new THREE.Mesh(new THREE.DodecahedronGeometry(0.21, 0), r2); fist.castShadow = true; a.add(at(fist, 0, -0.76, 0.02)); body.add(a); return a; });
+  const legs = [-1, 1].map(sd => { const l = new THREE.Group(); l.position.set(sd * 0.2, 0.6, 0); l.add(at(box(0.25, 0.6, 0.27, r2), 0, -0.3, 0)); body.add(l); return l; });
+  if (o.glow) { const gm = sm(o.glow, { em: o.glow, ei: 1.3 }); [[-0.3, 1.38, -0.1], [0.32, 1.42, -0.12], [0, 1.25, -0.32], [0.1, 0.9, 0.34]].forEach(([x, y, z], i) => { const c = mesh(new THREE.ConeGeometry(0.07, 0.3 + i * 0.04, 5), gm, x, y, z); c.rotation.set(-0.4, i, (x > 0 ? -1 : 1) * 0.4); body.add(c); }); }
+  if (o.moss) for (let i = 0; i < 5; i++) { const b = mesh(new THREE.IcosahedronGeometry(0.12, 0), mat(o.moss), Math.cos(i * 1.3) * 0.32, 1.32 + (i % 2) * 0.1, Math.sin(i * 1.3) * 0.22); body.add(b); }
+  g.add(body); g.userData.body = body; g.scale.setScalar(o.k || 1);
+  g.userData.gait = (t, mv) => { const a = mv ? Math.sin(t * 6) * 0.4 : Math.sin(t * 1.2) * 0.05; legs[0].rotation.x = a; legs[1].rotation.x = -a; arms[0].rotation.x = -a * 0.8; arms[1].rotation.x = a * 0.8; body.rotation.z = mv ? Math.sin(t * 6) * 0.04 : 0; };
+  return g;
+}
+function makeScorpion(o) {
+  const g = new THREE.Group(), body = new THREE.Group(), sh = sm(o.shell, { r: 0.35 }), dk = sm(o.dark, { r: 0.5 });
+  const tor = mesh(sph(0.3, 14, 10), sh, 0, 0.3, 0); tor.scale.set(1, 0.5, 1.3); body.add(tor);
+  body.add(mesh(sph(0.17, 12, 8), sh, 0, 0.31, 0.38));
+  const eye = new THREE.MeshBasicMaterial({ color: o.eye || "#ffe040" });
+  [-0.06, 0.06].forEach(x => body.add(at(new THREE.Mesh(sph(0.03, 8, 6), eye), x, 0.4, 0.5)));
+  [-1, 1].forEach(sd => { const c = new THREE.Group(); c.position.set(sd * 0.2, 0.3, 0.45); c.rotation.y = sd * 0.5;
+    const arm = mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.36, 6), dk, 0, 0, 0.16); arm.rotation.x = Math.PI / 2; c.add(arm);
+    c.add(mesh(sph(0.1, 10, 8), sh, 0, 0, 0.38)); [-0.05, 0.05].forEach(x => { const p = mesh(new THREE.ConeGeometry(0.04, 0.2, 6), sh, x, 0, 0.52); p.rotation.x = Math.PI / 2; c.add(p); }); body.add(c); });
+  const legs = []; for (let i = 0; i < 3; i++) [-1, 1].forEach(sd => { const l = new THREE.Group(); l.position.set(sd * 0.22, 0.3, 0.18 - i * 0.2); const m = mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.4, 5), dk, sd * 0.16, -0.12, 0); m.rotation.z = sd * 1.05; l.add(m); body.add(l); legs.push(l); });
+  const tail = new THREE.Group(); tail.position.set(0, 0.32, -0.36); body.add(tail);
+  for (let i = 0; i < 5; i++) { const a = i / 4 * 2.5; tail.add(mesh(sph(0.09 - i * 0.008, 10, 8), sh, 0, Math.sin(a) * 0.5, -Math.cos(a) * 0.3 + 0.05)); }
+  const st = mesh(new THREE.ConeGeometry(0.05, 0.2, 6), sm(o.sting || "#2a1a10"), 0, 0.34, 0.32); st.rotation.x = 2.2; tail.add(st);
+  g.add(body); g.userData.body = body; g.scale.setScalar(o.k || 1);
+  g.userData.gait = (t, mv) => { legs.forEach((l, i) => { l.rotation.x = mv ? Math.sin(t * 14 + i) * 0.4 : 0; }); tail.rotation.x = Math.sin(t * 2) * 0.12; };
+  return g;
+}
+function makeBiped(o) {
+  const g = new THREE.Group(), body = makePerson(o);
+  const eye = new THREE.MeshBasicMaterial({ color: o.eyes || "#ff4a2a" });
+  [-0.075, 0.075].forEach(x => body.add(at(new THREE.Mesh(sph(0.032, 8, 6), eye), x, 1.1, 0.205)));
+  if (o.wrap) for (let i = 0; i < 6; i++) { const r = mesh(new THREE.TorusGeometry(0.21 - (i > 3 ? 0.04 : 0), 0.025, 5, 14), sm(o.wrap), 0, 0.35 + i * 0.13, 0); r.rotation.x = Math.PI / 2 + (i % 2 ? 0.2 : -0.2); body.add(r); }
+  if (o.helm) { body.add(mesh(new THREE.SphereGeometry(0.235, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), sm(o.helm, { r: 0.35 }), 0, 1.1, 0)); body.add(mesh(new THREE.ConeGeometry(0.05, 0.3, 6), sm(o.plume || "#8f1f2a"), 0, 1.42, -0.04)); }
+  if (o.sword) { const sw = new THREE.Group(); sw.add(mesh(new THREE.BoxGeometry(0.06, 0.85, 0.02), sm(o.blade || "#c8d0d8", { r: 0.3, em: o.bladeGlow || 0x000000, ei: 0.8 }), 0, 0.45, 0)); sw.add(mesh(new THREE.BoxGeometry(0.24, 0.05, 0.06), sm("#3a3a44"), 0, 0.02, 0)); sw.position.set(0.36, 0.55, 0.16); sw.rotation.x = 0.5; body.add(sw); }
+  if (o.maul) { const hm = new THREE.Group(); hm.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 8), sm("#4a3a2a"), 0, 0.3, 0)); hm.add(mesh(new THREE.BoxGeometry(0.3, 0.18, 0.18), sm("#5a5a66", { r: 0.4 }), 0, 0.75, 0)); hm.position.set(0.36, 0.4, 0.12); hm.rotation.x = 0.3; body.add(hm); }
+  g.add(body); g.userData.body = body; g.scale.setScalar(o.k || 1);
+  g.userData.gait = (t, mv) => { body.rotation.z = Math.sin(t * (mv ? 8 : 1.5)) * (mv ? 0.07 : 0.02); body.position.y = mv ? Math.abs(Math.sin(t * 8)) * 0.05 : 0; };
+  return g;
+}
+Object.assign(SLIME_COL, { vase: "#7a8a3a", givre: "#a8dcf4", sablon: "#e0b878", merevase: "#5f7a34", reinesable: "#d8a050", givreg: "#7fc4ec" });
+const slimeK = (kind, k) => { const g = makeSlime(kind); if (k) g.scale.setScalar(k); return g; };
+
+/* ---- Monstres communs par palier (les PV et l'attaque montent avec l'étage) ---- */
+const FOE_POOL = {
+  vase:   { name: "Slime des vases", pl: "slimes des vases", hit: "Éclaboussure", die: "retombe en flaque", model: () => slimeK("vase"), hp: 1, atk: 1 },
+  follet: { name: "Feu follet", pl: "feux follets", hit: "Brûlure froide", die: "s'éteint comme une bougie", model: () => makeWisp("#7fe0ff", "#e6fbff"), hp: 0.8, atk: 1.15 },
+  sanglier: { name: "Sanglier des fourrés", pl: "sangliers", hit: "Coup de boutoir", die: "détale dans les fourrés", model: () => makeQuad({ fur: "#5a4030", dark: "#3a2a20", snout: "#8a6a50", eye: "#ff8a3a", tusks: true, ears: true, k: 1.1, legs: 0.36 }), hp: 1.2, atk: 1 },
+  champv: { name: "Champignon vénéneux", pl: "champignons vénéneux", hit: "Nuage toxique", die: "s'effondre en poussière violette", model: () => makeShroom("#8a4fc2"), hp: 0.9, atk: 1.05 },
+  loupb:  { name: "Loup des neiges", pl: "loups des neiges", hit: "Morsure glacée", die: "disparaît dans la poudreuse", model: () => makeQuad({ fur: "#e8eef2", dark: "#9aa8b4", snout: "#c8d0d8", eye: "#5ad0ff", ears: true, k: 1 }), hp: 1.1, atk: 1.05 },
+  givre:  { name: "Slime de givre", pl: "slimes de givre", hit: "Éclat de glace", die: "se fige et se brise", model: () => slimeK("givre"), hp: 1, atk: 1 },
+  bouc:   { name: "Bouc des cimes", pl: "boucs des cimes", hit: "Coup de cornes", die: "bondit hors de vue", model: () => makeQuad({ fur: "#d8d0c0", dark: "#6a6058", snout: "#b8b0a0", eye: "#ffd23a", horns: true, k: 1, legs: 0.5, tail: 0.1 }), hp: 1.15, atk: 1 },
+  golemg: { name: "Golem de glace", pl: "golems de glace", hit: "Poing de glace", die: "s'effondre en blocs de glace", model: () => makeGolem({ rock: "#bfe0f0", rock2: "#9ac8e0", eye: "#3fd0ff", glow: "#8fe8ff", k: 0.7 }), hp: 1.4, atk: 0.9 },
+  scorp:  { name: "Scorpion des dunes", pl: "scorpions", hit: "Pince", die: "s'enfouit dans le sable", model: () => makeScorpion({ shell: "#c08a4a", dark: "#7a4a2a" }), hp: 1, atk: 1.1 },
+  momie:  { name: "Momie", pl: "momies", hit: "Étreinte", die: "tombe en poussière et en bandelettes", model: () => makeBiped({ body: "#d8ccb0", skin: "#c8bc9c", hair: "#b8ac8c", bald: true, wrap: "#e8dcc0", eyes: "#7fe0ff" }), hp: 1.2, atk: 1 },
+  chacal: { name: "Chacal", pl: "chacals", hit: "Morsure", die: "s'enfuit en glapissant", model: () => makeQuad({ fur: "#c89a5a", dark: "#7a5a30", snout: "#2e2a26", eye: "#ffd23a", ears: true, k: 0.95, legs: 0.5 }), hp: 0.95, atk: 1.1 },
+  sablon: { name: "Slime de sable", pl: "slimes de sable", hit: "Rafale de sable", die: "s'éparpille au vent", model: () => slimeK("sablon"), hp: 1, atk: 1 },
+  salam:  { name: "Salamandre de lave", pl: "salamandres", hit: "Morsure brûlante", die: "plonge dans une fissure", model: () => makeQuad({ fur: "#c8401a", dark: "#3a1a10", snout: "#e86a2a", eye: "#ffe040", k: 1, legs: 0.26, tail: 0.6, glow: "#ffb03a" }), hp: 1.05, atk: 1.1 },
+  braise: { name: "Esprit de braise", pl: "esprits de braise", hit: "Flammèche", die: "s'éteint en fumée", model: () => makeWisp("#ff7a2a", "#ffe0a0"), hp: 0.85, atk: 1.2 },
+  golemc: { name: "Golem de cendre", pl: "golems de cendre", hit: "Poing de pierre", die: "s'écroule en scories", model: () => makeGolem({ rock: "#4a4040", rock2: "#3a3232", eye: "#ff6a1a", glow: "#ff6a1a", k: 0.7 }), hp: 1.4, atk: 0.9 },
+  dechu:  { name: "Chevalier déchu", pl: "chevaliers déchus", hit: "Taille", die: "s'agenouille et se disperse en cendres", model: () => makeBiped({ body: "#3a3a44", skin: "#5a5a66", hair: "#2a2a30", bald: true, eyes: "#ff4a2a", sword: true, helm: "#4a4a55" }), hp: 1.25, atk: 1.05 },
+};
+const foeBase = n => ({ hp: 8 + 3.2 * n, atk: 2.2 + 0.85 * n });
+
+/* ---- Les quatre paliers : couleurs, textes, rôles ---- */
+const BIOMES = {
+  1: { key: "bois", gate: "ronces", gateName: "Un mur de ronces", gateTxt: "Des ronces épaisses comme des bras, qui frémissent quand tu approches.", gateLock: "les ronces du nord ne s'écarteront pas",
+    dens: { T: 0.11, o: 0.02, g: 0.12, f: 0.08 }, zone: { w: 0.12, T: 0.08, m: 0.55 },
+    ground: { ".": [0.42, 0.66, 0.3], ",": [0.36, 0.58, 0.26], f: [0.5, 0.68, 0.32], ":": [0.74, 0.64, 0.45], s: [0.7, 0.6, 0.44], m: [0.28, 0.36, 0.22], C: [0.45, 0.55, 0.32] },
+    pal: { tree: ["#2f7a3b", "#3a8a42", "#2b6e36", "#4f9a37", "#6aa83a"], pine: ["#2b5e36", "#244f2e"], pineEvery: 4, trunk: "#5a3a24", blade: ["#4f9a37", "#62b046"], reed: "#6a8a3a", pad: "#3f9a4a", cliffTop: "#5a9a40" },
+    farCol: "#5f9a4a", mm: { ".": "#6fae4a", ",": "#5a9a3e", f: "#8cc45a", T: "#2f6f3a", m: "#46603a" }, stone: ["#a9a192", "#9c9586", "#b0a898"], moss: "#5a8a3a",
+    roofs: ["#8a3a22", "#3a6a4a", "#a0522d", "#4a5a7a"], walls: ["#d9c09a", "#e3cfa8"], cloth: ["#5d7a3a", "#7a3b2a", "#3d6a7a", "#8a6a3a", "#6a4a8a"],
+    halte: "La clairière des lucioles", halteNames: [], wood: ["#a87344", "#7a5230"],
+    roles: { chef: [, , "le lanternier", "le fermier", "le chef forestier"], aide: [, , "l'herboriste", "l'apicultrice", "la cueilleuse"], savant: [, , "l'ermite", "le chapelain", "le vieux druide"],
+      sage: [, , "la dryade", "la gardienne de la mare", "la fée des bois"], passeur: [, , "le passeur", "le meunier", "le cordier"] }, savantF: false,
+    house: "Ça sent la soupe aux herbes et le feu de bois. La porte est fermée." },
+  2: { key: "neige", gate: "glace", gateName: "Un mur de glace", gateTxt: "Une muraille de glace bleue, lisse comme un miroir. Elle ne fond pas, même sous ta main.", gateLock: "le mur de glace du nord ne fondra pas",
+    dens: { T: 0.09, o: 0.05, g: 0.06, f: 0.04 }, zone: { w: 0.1, T: 0.06, m: 0.6 },
+    ground: { ".": [0.9, 0.93, 0.97], ",": [0.82, 0.87, 0.92], f: [0.86, 0.9, 0.96], ":": [0.72, 0.68, 0.62], s: [0.8, 0.76, 0.7], m: [0.74, 0.82, 0.9], C: [0.86, 0.89, 0.93] },
+    pal: { tree: ["#eef4f8", "#d6e2ea", "#e4ecf2"], pine: ["#2f5a4a", "#3a6a58"], pineEvery: 2, trunk: "#4a3a30", blade: ["#c8d4dc", "#aebcc8"], reed: "#8a9aa4", petal: ["#ffffff", "#bfe0ff", "#e0f0ff", "#a0c8ff"], stem: "#9ab0c0",
+      pad: "#e8f6fc", rock: "#9aa4ae", rock2: "#a8b2bc", cliffTop: "#f2f6fa", water: [0.55, 0.5, 0.62] },
+    farCol: "#e4ecf2", mm: { ".": "#e8eef4", ",": "#d0dce6", f: "#dfe8f0", T: "#3a6a58", m: "#b8cce0", s: "#c8bca8", ":": "#b8a890", "~": "#8ec8ec" },
+    sky: { top: "#3a78b8", mid: "#b8d8ee", low: "#f2f8fc", fog: "#e2ecf4", ground: "#8aa0b4", k: 0.5, motes: { color: "#ffffff", n: 160, size: 0.08, bright: 1.2, rise: -0.25, blink: 0 } },
+    stone: ["#c8ccd2", "#b8bec6", "#d2d6dc"], moss: "#f2f6fa", roofs: ["#b3412e", "#2f5d7a", "#6a5a8a", "#3a6a4a"], walls: ["#e8dcc8", "#d8c8b0"], cloth: ["#b3412e", "#2f5d7a", "#6a5a8a", "#3a6a4a", "#8a5a32"],
+    halte: "Le refuge des neiges", wood: ["#8a6a4a", "#5a4030"],
+    roles: { chef: ["le berger", "le guide", "le trappeur", "le pêcheur", "le chef de cordée"], aide: ["la fromagère", "la cuisinière du refuge", "la guérisseuse", "la fumeuse de poissons", "l'herboriste des cimes"],
+      savant: ["la moniale", "la cartographe", "l'abbesse", "la gardienne du phare", "l'astronome"], sage: ["la gardienne des neiges", "la sorcière du col", "la dame des sources", "la gardienne du lac", "la voyante des cimes"],
+      passeur: ["le cordier", "le passeur", "le charpentier", "le batelier", "le guide de glacier"] }, savantF: true,
+    house: "Un chalet aux volets peints. De la fumée sort de la cheminée, mais personne ne répond." },
+  3: { key: "sable", gate: "gres", gateName: "Une herse de grès", gateTxt: "Une lourde herse de grès gravée de soleils. Aucune prise, aucun levier.", gateLock: "la herse du nord restera baissée",
+    dens: { T: 0.035, o: 0.07, g: 0.05, f: 0.03 }, zone: { w: 0.14, T: 0.1, m: 0.5 },
+    ground: { ".": [0.88, 0.74, 0.5], ",": [0.8, 0.66, 0.4], f: [0.86, 0.62, 0.4], ":": [0.72, 0.58, 0.4], s: [0.8, 0.68, 0.52], m: [0.5, 0.62, 0.32], C: [0.8, 0.62, 0.44] },
+    pal: { tree: ["#5a8a3a", "#6a9a40", "#4a7a30"], pine: ["#6a7a30", "#5a6a2a"], pineEvery: 3, trunk: "#8a6a40", blade: ["#c8b060", "#b09848"], reed: "#8aa040", petal: ["#f0d060", "#e08040", "#f0f0d0", "#c05030"], stem: "#8a8a40",
+      pad: "#5aa04a", rock: "#c08a5a", rock2: "#b07a4a", cliffTop: "#d8a870", water: [0.5, 0.55, 0.45] },
+    farCol: "#d8b07a", mm: { ".": "#e0c080", ",": "#c8a868", f: "#d8a068", T: "#5a8a3a", m: "#7aa050", s: "#d0b890", ":": "#b89868", o: "#b07a4a" },
+    sky: { top: "#2a70c0", mid: "#a8cce8", low: "#f6e4c4", fog: "#eedcbc", ground: "#a08060", k: 0.5, motes: { color: "#ffe8b0", n: 90, size: 0.05, bright: 1, rise: 0.02, blink: 0 } },
+    stone: ["#d8b888", "#c8a878", "#e0c498"], moss: "#c89a5a", roofs: ["#c8473a", "#2f74c0", "#d8a640", "#7a3b6a"], walls: ["#ecdcbc", "#e0c8a0"], cloth: ["#e0c090", "#c8473a", "#2f74c0", "#d8a640", "#7a3b6a"],
+    halte: "Le caravansérail", wood: ["#b08850", "#7a5a30"],
+    roles: { chef: ["le chef caravanier", "le maître de l'oasis", "le contremaître", "le chef des fouilles", "le grand prêtre"], aide: ["la porteuse d'eau", "la jardinière", "la marchande d'épices", "l'embaumeuse", "la prêtresse"],
+      savant: ["l'archéologue", "le scribe", "l'ingénieur", "le pilleur repenti", "l'astrologue"], sage: ["la devineresse", "la dame du lotus", "la nomade", "la gardienne des stèles", "l'oracle du soleil"],
+      passeur: ["le batelier", "le puisatier", "le mineur", "le passeur du fleuve", "le gardien du canal"] }, savantF: false,
+    house: "Une maison de terre aux murs épais. À l'intérieur, il fait frais. On te fait signe de passer ton chemin." },
+  4: { key: "cendre", gate: "fer", gateName: "Une grille de fer noir", gateTxt: "Une grille de fer noir, chaude au toucher, couverte de runes qui rougeoient.", gateLock: "la grille du nord restera scellée",
+    dens: { T: 0.06, o: 0.08, g: 0.04, f: 0.05 }, zone: { w: 0.12, T: 0.06, m: 0.55 },
+    ground: { ".": [0.3, 0.27, 0.27], ",": [0.38, 0.32, 0.3], f: [0.46, 0.3, 0.22], ":": [0.52, 0.44, 0.38], s: [0.44, 0.4, 0.38], m: [0.2, 0.18, 0.18], C: [0.32, 0.28, 0.28] },
+    pal: { tree: ["#3a3030", "#4a3a34", "#2a2424"], pine: ["#3a2e2a", "#2e2420"], pineEvery: 3, trunk: "#2a2020", blade: ["#6a4a3a", "#5a3a30"], reed: "#4a3028", petal: ["#ff8a3a", "#ffb04a", "#ff5a2a", "#ffd27a"], stem: "#3a2a24",
+      pad: "#2a2020", rock: "#4a4040", rock2: "#3a3434", cliffTop: "#5a3030", water: [0.05, 0.95, 0.5], lava: "#ff4a10" },
+    farCol: "#3a2a28", mm: { ".": "#4a4040", ",": "#5a4a44", f: "#7a4a30", T: "#2a2424", m: "#2e2828", s: "#6a605a", ":": "#7a6a5a", "~": "#ff6a1a", b: "#ff6a1a", x: "#ff6a1a", C: "#3a3232", o: "#5a5050" },
+    sky: { top: "#3a1a2a", mid: "#c0603a", low: "#f0a060", fog: "#8a4a3a", ground: "#3a1a10", k: 0.6, motes: { color: "#ffb04a", n: 140, size: 0.06, bright: 2.2, rise: 0.35, blink: 0.7 } },
+    stone: ["#5a5050", "#4a4242", "#625858"], moss: "#7a2a1a", roofs: ["#4a2a2a", "#2a2a3a", "#5a3a2a", "#3a3a2a"], walls: ["#8a7a6a", "#7a6a5a"], cloth: ["#4a3a3a", "#7a2a1a", "#3a3a5a", "#8a6a2a", "#2a4a4a"],
+    halte: "Le sanctuaire des cendres", wood: ["#5a5a66", "#3a3a44"],
+    roles: { chef: ["le capitaine des éclaireurs", "le maître forgeron", "le capitaine du ponton", "le capitaine du siège", "le dernier chevalier"], aide: ["l'alchimiste", "la fondeuse", "la guérisseuse", "la cantinière", "la gardienne des clés"],
+      savant: ["la forgeronne runique", "l'ingénieure", "l'érudite", "l'archiviste", "la sage"], sage: ["l'oracle", "la salamandrière", "la dame des braises", "la porte-bannière", "la prophétesse"],
+      passeur: ["le pontonnier", "le chaînier", "le batelier de lave", "le sapeur", "le gardien du gouffre"] }, savantF: true,
+    house: "Une maison de pierre noire aux volets de fer. Derrière, on entend souffler une forge." },
+};
+const NAMES_M = ["Aubin", "Cyprien", "Elouan", "Ignace", "Mathurin", "Quentin", "Valentin", "Anselme", "Côme", "Eudes", "Gauvain", "Isidore", "Lazare", "Nestor", "Philémon", "Séraphin", "Urbain", "Ambroise", "Clovis", "Eustache", "Guilhem", "Jules", "Marius", "Oscar", "Raphaël", "Tristan", "Achille", "César", "Émeric", "Gustave", "Léandre", "Nils", "Prosper", "Ulysse", "Désiré", "Elzéar", "Florent", "Hippolyte", "Joachim", "Lucien", "Maxence", "Noé", "Pacôme", "Rodolphe", "Sylvestre", "Thibault", "Yvon", "Zacharie", "Arsène", "Barnabé", "Corentin", "Gaétan", "Hector", "Romain"];
+const NAMES_F = ["Bérénice", "Delphine", "Faustine", "Hortense", "Jacinthe", "Léonie", "Noémie", "Pernelle", "Rosalie", "Sidonie", "Ursule", "Yvonne", "Blanche", "Diane", "Flore", "Hermine", "Joséphine", "Margaux", "Ophélie", "Romane", "Tiphaine", "Victoire", "Bertille", "Domitille", "Félicie", "Héloïse", "Lison", "Paloma", "Solène", "Violette", "Brune", "Daphné", "Honorine", "Jeanne", "Mahaut", "Olympe", "Roxane", "Thaïs", "Aglaé", "Capucine", "Clémence", "Albane", "Esther", "Gisèle", "Irène", "Lucie", "Mélusine", "Perrine", "Salomé", "Zélie", "Anaïs", "Colombe", "Edwige", "Marthe"];
+
+/* ---- Les étages ---- */
+// p : pickups. k1 → le chef, k2 → l'aide (dans la zone sauvage), k3 → le savant (ruines), k4 → le passeur (rive).
+// Formes : lantern, flower, tablet, rope, orb, herb, page, log, crystal, ore, wheel, cone, flag, jar, disc.
+const FLOORS = {
+  3: { name: "Le marais aux lanternes", camp: "le village des lanterniers", zone: "les eaux mortes", ruins: "le temple englouti", river: "le canal", north: "la saulaie", lanterns: true,
+    foes: ["vase", "champv", "follet"], drop: ["une spore violette", "spores violettes"], lost: { name: "Pip", rel: "Mon fils" },
+    p: [["Lanterne éteinte", "lanternes éteintes", "lantern", "#f0c04a"], ["Lys d'eau", "lys d'eau", "flower", "#f6f6ff", "ils flottent entre les roseaux"], ["Tablette gravée", "tablettes gravées", "tablet", "#b8c4b0"], ["Corde de jonc", "cordes de jonc", "rope", "#a8a040"]],
+    mini: { name: "La Mère des vases", f: 1, hit: "Engloutissement", special: "Marée de vase", die: "se répand en une flaque immense, puis plus rien", model: () => slimeK("merevase", 2.2) },
+    boss: { name: "Le Saule des brumes", hit: "Coup de branche", special: "Brume étouffante", die: "se fige et redevient un simple vieux saule", model: () => makeTreant({ leaves: ["#8aa890", "#6a8a78", "#a8c0a8"], bark: "#4a4a40", bark2: "#5a5a4a", eye: "#9ff0ff", scale: 1.55 }) },
+    ov: { ground: { ".": [0.36, 0.56, 0.36], ",": [0.32, 0.5, 0.32], m: [0.24, 0.32, 0.24] }, pal: { tree: ["#3f6a4a", "#2f5a44", "#4a7a50", "#5a8a5a"] }, sky: { top: "#3a3a78", mid: "#a8b8c8", low: "#e8d8c0", fog: "#b8c4c0", ground: "#3a5a4a", k: 0.4, motes: { color: "#d9ff7a", n: 120, size: 0.08, bright: 2.6, rise: 0.03, blink: 1 } }, zone: { w: 0.2, T: 0.06, m: 0.6 } } },
+  4: { name: "Les vergers sauvages", camp: "la ferme des vergers", zone: "la mare aux grenouilles", ruins: "la vieille chapelle", river: "le ruisseau", north: "les vergers du nord",
+    foes: ["sanglier", "champv", "vase"], drop: ["une spore violette", "spores violettes"], lost: { name: "Lou", rel: "Ma fille", f: 1 },
+    p: [["Pomme dorée", "pommes dorées", "orb", "#f0c04a"], ["Rayon de miel", "rayons de miel", "jar", "#e8a830", "les abeilles les cachent au bord de l'eau"], ["Feuillet de psautier", "feuillets de psautier", "page", "#f6ecd0"], ["Planche de chêne", "planches de chêne", "log", "#a87344"]],
+    mini: { name: "Le Grand sanglier", hit: "Coup de boutoir", special: "Charge furieuse", die: "s'enfuit dans les fourrés en grognant", model: () => makeQuad({ fur: "#4a3020", dark: "#2a1a10", snout: "#7a5a40", eye: "#ff5a2a", tusks: true, ears: true, spikes: true, k: 1, legs: 0.36, scale: 1.9 }) },
+    boss: { name: "Le Gardien du verger", hit: "Poing de bois", special: "Pluie de pommes", die: "se couvre de fleurs et retourne à la terre", model: () => makeGolem({ rock: "#6a5a3a", rock2: "#5a4a2a", eye: "#ffe040", moss: "#f0a0c0", glow: "#7ab84a", k: 1.45 }) },
+    ov: { pal: { tree: ["#f0a0c0", "#e8c0d8", "#7ab84a", "#5aa03a", "#f6d0e0"], petal: ["#ffffff", "#f08bb4", "#f5d04a", "#ff9a6a"] }, dens: { T: 0.09, o: 0.02, g: 0.1, f: 0.14 } } },
+  5: { name: "Le bois des Anciens", camp: "le camp des forestiers", zone: "la tourbière", ruins: "le cercle druidique", river: "la rivière d'argent", north: "le bois profond",
+    foes: ["follet", "sanglier", "champv"], drop: ["une défense", "défenses de sanglier"], lost: { name: "Mathis", rel: "Mon apprenti" },
+    p: [["Gland d'or", "glands d'or", "cone", "#d8a640"], ["Touffe de mousse lumineuse", "touffes de mousse lumineuse", "herb", "#7aff9a", "elles luisent dans le noir"], ["Rune de pierre", "runes de pierre", "tablet", "#9aa4a0"], ["Liane", "lianes", "rope", "#4f9a37"]],
+    mini: { name: "Le Champignon-roi", hit: "Coup de chapeau", special: "Pluie de spores", die: "s'effondre dans un nuage doré", model: () => { const g = makeShroom("#d8a640"); g.scale.setScalar(2.1); return g; } },
+    boss: { name: "L'Ancien du bois", hit: "Racine fouet", special: "Colère de la forêt", die: "pousse un long soupir et s'endort pour cent ans", model: () => makeTreant({ leaves: ["#1f5a32", "#2a6a3a", "#3a7a42"], bark: "#3a2a1a", bark2: "#4a3a2a", eye: "#ffe040", scale: 1.9 }) },
+    ov: { pal: { tree: ["#1f5a32", "#2a6a3a", "#174a2a", "#2f7a3b"], pineEvery: 3 }, dens: { T: 0.15, o: 0.02, g: 0.12, f: 0.05 } } },
+  6: { name: "Les alpages", camp: "le chalet des bergers", zone: "le pierrier", ruins: "le vieux fortin", river: "le torrent", north: "les hauts pâturages",
+    foes: ["loupb", "bouc", "givre"], drop: ["une touffe de laine", "touffes de laine"], lost: { name: "Anouk", rel: "Ma fille", f: 1 },
+    p: [["Fromage d'alpage", "fromages d'alpage", "wheel", "#f0d080"], ["Edelweiss", "edelweiss", "flower", "#ffffff", "ils poussent entre les pierres"], ["Page de registre", "pages de registre", "page", "#f6ecd0"], ["Corde de chanvre", "cordes de chanvre", "rope", "#c8a868"]],
+    mini: { name: "Le Bouc de pierre", hit: "Coup de cornes", special: "Charge de la montagne", die: "bondit sur un rocher et disparaît", model: () => makeQuad({ fur: "#8a8a8a", dark: "#4a4a4a", snout: "#aaa", eye: "#ffd23a", horns: true, hornCol: "#e8e0d0", k: 1, legs: 0.5, tail: 0.1, scale: 1.9 }) },
+    boss: { name: "Le Golem des alpages", hit: "Poing de granit", special: "Avalanche", die: "s'écroule en un tas de rochers couverts de fleurs", model: () => makeGolem({ rock: "#8a8a80", rock2: "#7a7a70", eye: "#5ad0ff", moss: "#7aa84a", k: 1.5 }) },
+    ov: { ground: { ".": [0.56, 0.72, 0.42], ",": [0.5, 0.66, 0.36], f: [0.66, 0.76, 0.5] }, pal: { tree: ["#3a8a42", "#e6eef2", "#4f9a37"], blade: ["#5a9a3a", "#6aaa46"], stem: "#3c8a45", petal: ["#ffffff", "#f08bb4", "#b9a2f0", "#f5d04a"] }, mm: { ".": "#8cc060", ",": "#7ab050", f: "#a8d080" }, sky: { k: 0.3, motes: null } } },
+  7: { name: "Le col venteux", camp: "le refuge du col", zone: "la combe gelée", ruins: "le vieux poste de garde", river: "le torrent glacé", north: "le versant nord", blob: "C",
+    foes: ["bouc", "givre", "golemg"], drop: ["un éclat de glace", "éclats de glace"], lost: { name: "Basile", rel: "Mon frère" },
+    p: [["Bûche sèche", "bûches sèches", "log", "#8a6a4a"], ["Cristal de givre", "cristaux de givre", "crystal", "#8fe8ff", "ils scintillent dans la neige"], ["Morceau de carte", "morceaux de carte", "page", "#f0e0c0"], ["Piton d'acier", "pitons d'acier", "ore", "#c8d0d8"]],
+    mini: { name: "Le Loup de tempête", hit: "Morsure glacée", special: "Hurlement du blizzard", die: "s'efface dans une bourrasque de neige", model: () => makeQuad({ fur: "#f4f8fa", dark: "#8aa0b4", snout: "#c8d0d8", eye: "#3fd0ff", ears: true, spikes: true, k: 1, scale: 1.8 }) },
+    boss: { name: "L'Esprit du blizzard", hit: "Rafale", special: "Tempête blanche", die: "se dissipe en flocons silencieux", model: () => makeWisp("#d8f0ff", "#ffffff", 2.2) },
+    ov: { dens: { T: 0.06, o: 0.09, g: 0.05, f: 0.03 } } },
+  8: { name: "La forêt de givre", camp: "le hameau des trappeurs", zone: "les sources chaudes", ruins: "l'abbaye enneigée", river: "la rivière gelée", north: "la forêt profonde",
+    foes: ["loupb", "golemg", "givre"], drop: ["un cœur de glace", "cœurs de glace"], lost: { name: "Nora", rel: "Ma petite sœur", f: 1 },
+    p: [["Pomme de pin d'argent", "pommes de pin d'argent", "cone", "#c8d0d8"], ["Champignon de neige", "champignons de neige", "herb", "#f0f0ff", "ils poussent près des sources fumantes"], ["Page d'enluminure", "pages d'enluminure", "page", "#f6ecd0"], ["Planche de mélèze", "planches de mélèze", "log", "#a87344"]],
+    mini: { name: "La Grande Ourse blanche", f: 1, hit: "Coup de patte", special: "Étreinte de l'ourse", die: "grogne, puis retourne dormir dans sa tanière", model: () => makeQuad({ fur: "#f2f2ee", dark: "#c8c8c0", snout: "#2a2a2a", eye: "#2a2a2a", ears: true, k: 1.2, legs: 0.36, tail: 0.08, scale: 1.9 }) },
+    boss: { name: "Le Cerf de givre", hit: "Coup de bois", special: "Charge glacée", die: "s'incline, puis s'efface dans une pluie de cristaux", model: () => { const g = makeQuad({ fur: "#d8e8f0", dark: "#7a90a4", snout: "#f0f6fa", eye: "#3fd0ff", antlers: true, k: 1, legs: 0.6, tail: 0.12, scale: 1.9 }); g.traverse(o => { if (o.isMesh && o.material.emissive && o.material.color.getHexString() === "e0a83a") { o.material = sm("#bff6ff", { em: "#3fd0ff", ei: 0.8 }); } }); return g; } },
+    ov: { pal: { pineEvery: 1 }, dens: { T: 0.15, o: 0.03, g: 0.06, f: 0.03 }, ground: { m: [0.5, 0.6, 0.52] }, mm: { m: "#7a9a88" } } },
+  9: { name: "Le lac gelé", camp: "le village des pêcheurs", zone: "le lac gelé", ruins: "le phare en ruine", river: "le chenal", north: "la rive nord",
+    foes: ["givre", "loupb", "golemg"], drop: ["un croc", "crocs de loup blanc"], lost: { name: "Tilio", rel: "Mon fils" },
+    p: [["Poisson des glaces", "poissons des glaces", "orb", "#8ec8ec"], ["Perle de glace", "perles de glace", "orb", "#e0f6ff", "elles affleurent sous la glace"], ["Feuille du journal de bord", "feuilles du journal de bord", "page", "#f0e6d0"], ["Corde goudronnée", "cordes goudronnées", "rope", "#4a3a2a"]],
+    mini: { name: "Le Golem de glace", hit: "Poing de glace", special: "Pluie de grêle", die: "se fend en deux et s'effondre", model: () => makeGolem({ rock: "#bfe0f0", rock2: "#9ac8e0", eye: "#3fd0ff", glow: "#8fe8ff", k: 1.35 }) },
+    boss: { name: "Le Mammouth du lac", hit: "Coup de défenses", special: "Piétinement", die: "barrit une dernière fois et s'éloigne sur la glace", model: () => makeQuad({ fur: "#7a5a3a", dark: "#4a3420", snout: "#6a4a30", eye: "#2a1a10", tusks: true, ears: true, k: 1.3, legs: 0.6, tail: 0.1, scale: 2.1 }) },
+    ov: { zone: { w: 0.45, T: 0.03, m: 0.4 } } },
+  10: { name: "Le pic des tempêtes", camp: "le camp de base", zone: "le glacier", ruins: "l'observatoire", river: "la faille", north: "les crêtes", blob: "C",
+    foes: ["golemg", "bouc", "loupb"], drop: ["une corne", "cornes de bouc"], lost: { name: "Élio", rel: "Mon apprenti" },
+    p: [["Fanion de cordée", "fanions de cordée", "flag", "#c8473a"], ["Fleur de foudre", "fleurs de foudre", "flower", "#f0f070", "elles crépitent sur la glace"], ["Lentille de télescope", "lentilles de télescope", "disc", "#bff6ff"], ["Barreau d'échelle", "barreaux d'échelle", "log", "#8a6a4a"]],
+    mini: { name: "Le Yéti", hit: "Coup de poing", special: "Rugissement", die: "s'enfuit vers les sommets en hurlant", model: () => makeGolem({ rock: "#f2f4f6", rock2: "#d8dee4", eye: "#3fd0ff", k: 1.35 }) },
+    boss: { name: "Le Dragon des tempêtes", hit: "Coup de griffes", special: "Souffle de foudre", die: "s'envole dans les nuages et ne revient pas", model: () => makeQuad({ fur: "#5a7aa8", dark: "#2a3a5a", snout: "#7a9ac8", eye: "#f0f070", horns: true, hornCol: "#e8f0f8", wings: "#3a5a8a", spikes: true, k: 1, legs: 0.5, tail: 0.75, scale: 2.4 }) },
+    ov: { sky: { top: "#2a3a5a", mid: "#8a9ab0", low: "#d8e0e8", fog: "#b0bcc8", k: 0.55 }, dens: { T: 0.04, o: 0.1, g: 0.04, f: 0.02 } } },
+  11: { name: "Les dunes rouges", camp: "le campement caravanier", zone: "la mer de dunes", ruins: "la cité ensablée", river: "l'oued", north: "les dunes du nord",
+    foes: ["scorp", "sablon", "chacal"], drop: ["un grain de quartz", "grains de quartz"], lost: { name: "Yanis", rel: "Mon fils" },
+    p: [["Datte dorée", "dattes dorées", "orb", "#c8782a"], ["Rose des sables", "roses des sables", "crystal", "#e0b088", "elles se cachent sous le sable"], ["Tesson inscrit", "tessons inscrits", "tablet", "#c8a878"], ["Corde de palmier", "cordes de palmier", "rope", "#a8884a"]],
+    mini: { name: "La Reine des sables", f: 1, hit: "Tourbillon", special: "Tempête de sable", die: "s'éparpille au vent du désert", model: () => slimeK("reinesable", 2.2) },
+    boss: { name: "Le Roi scorpion", hit: "Pince", special: "Dard empoisonné", die: "s'enfouit dans le sable pour toujours", model: () => makeScorpion({ shell: "#a8301a", dark: "#4a1a10", sting: "#f0c040", eye: "#ffe040", k: 2.4 }) },
+    ov: { ground: { ".": [0.9, 0.62, 0.42], ",": [0.84, 0.56, 0.36] }, mm: { ".": "#e0a070" }, zone: { w: 0.04, T: 0.03, m: 0.25 } } },
+  12: { name: "L'oasis perdue", camp: "le village de l'oasis", zone: "l'oasis", ruins: "les jardins suspendus", river: "le canal d'irrigation", north: "la palmeraie",
+    foes: ["chacal", "scorp", "sablon"], drop: ["un dard", "dards de scorpion"], lost: { name: "Leïla", rel: "Ma fille", f: 1 },
+    p: [["Cruche d'eau", "cruches d'eau", "jar", "#c87a4a"], ["Fleur de lotus", "fleurs de lotus", "flower", "#f8b0d0", "elles flottent sur l'eau de l'oasis"], ["Papyrus", "papyrus", "page", "#e8d8a8"], ["Planche de cèdre", "planches de cèdre", "log", "#a86a3a"]],
+    mini: { name: "Le Chacal-roi", hit: "Morsure", special: "Appel de la meute", die: "s'enfuit en glapissant vers les dunes", model: () => makeQuad({ fur: "#d8a840", dark: "#7a5a20", snout: "#2e2a26", eye: "#7fe0ff", ears: true, k: 1, legs: 0.5, scale: 1.9 }) },
+    boss: { name: "La Momie de l'oasis", f: 1, hit: "Étreinte", special: "Malédiction", die: "tombe en poussière ; ses bandelettes s'envolent", model: () => makeBiped({ body: "#d8ccb0", skin: "#c8bc9c", hair: "#2a2a2a", dress: true, wrap: "#e8dcc0", eyes: "#7fe0ff", k: 1.9 }) },
+    ov: { zone: { w: 0.3, T: 0.16, m: 0.45 }, dens: { T: 0.06, o: 0.04, g: 0.08, f: 0.05 } } },
+  13: { name: "Les canyons", camp: "le comptoir des mineurs", zone: "les gorges", ruins: "la forteresse troglodyte", river: "le torrent du canyon", north: "les plateaux", blob: "C",
+    foes: ["sablon", "chacal", "momie"], drop: ["une griffe", "griffes de chacal"], lost: { name: "Maé", rel: "Mon apprentie", f: 1 },
+    p: [["Pépite de cuivre", "pépites de cuivre", "ore", "#d8803a"], ["Fleur de cactus", "fleurs de cactus", "flower", "#f05a7a", "elles poussent au bord des gorges"], ["Morceau du plan", "morceaux du plan", "page", "#e8d8b0"], ["Poutre de soutènement", "poutres de soutènement", "log", "#8a6a40"]],
+    mini: { name: "Le Golem de grès", hit: "Poing de grès", special: "Éboulement", die: "s'effrite en sable rouge", model: () => makeGolem({ rock: "#c08a5a", rock2: "#a8724a", eye: "#ffe040", k: 1.35 }) },
+    boss: { name: "Le Basilic des canyons", hit: "Morsure", special: "Regard pétrifiant", die: "ferme ses yeux d'or et se change en statue", model: () => makeQuad({ fur: "#6a8a3a", dark: "#3a4a1a", snout: "#8aa04a", eye: "#ffe040", spikes: true, horns: true, k: 1, legs: 0.3, tail: 0.75, glow: "#ffe040", scale: 2.3 }) },
+    ov: { dens: { T: 0.025, o: 0.1, g: 0.04, f: 0.03 } } },
+  14: { name: "La nécropole des sables", camp: "le campement des fouilleurs", zone: "le champ de stèles", ruins: "la nécropole", river: "le fleuve sacré", north: "la vallée des rois",
+    foes: ["scorp", "momie", "chacal"], drop: ["une bandelette", "bandelettes"], lost: { name: "Ilyès", rel: "Mon cousin" },
+    p: [["Amulette funéraire", "amulettes funéraires", "orb", "#3fb0a0"], ["Bâton d'encens", "bâtons d'encens", "herb", "#c8a0d8", "ils brûlent encore entre les stèles"], ["Fragment de stèle", "fragments de stèle", "tablet", "#d8c8a0"], ["Chaîne de bronze", "chaînes de bronze", "rope", "#c8883a"]],
+    mini: { name: "Le Prêtre momifié", hit: "Bâton sacré", special: "Malédiction", die: "s'effondre en poussière dorée", model: () => makeBiped({ body: "#2f74c0", skin: "#c8bc9c", hair: "#d8a640", hat: "#d8a640", wrap: "#e8dcc0", staff: true, eyes: "#7fe0ff", k: 1.7 }) },
+    boss: { name: "Le Sphinx", hit: "Coup de patte", special: "Énigme mortelle", die: "s'allonge, ferme les yeux et redevient pierre", model: () => makeQuad({ fur: "#d8b060", dark: "#8a6a30", snout: "#e8c880", eye: "#3fd0ff", ears: true, wings: "#c89a40", k: 1.2, legs: 0.5, tail: 0.4, scale: 2.2 }) },
+    elite: { name: "Le Scorpion noir", base: "scorp", model: () => makeScorpion({ shell: "#2a2a30", dark: "#1a1a1e", sting: "#c8473a", eye: "#ff4a2a", k: 1.6 }) } },
+  15: { name: "Le temple du soleil", camp: "le parvis", zone: "les jardins brûlés", ruins: "le temple", river: "le canal sacré", north: "la cour du soleil",
+    foes: ["chacal", "sablon", "momie"], drop: ["une pincée de poussière d'or", "pincées de poussière d'or"], lost: { name: "Soraya", rel: "Ma sœur", f: 1 },
+    p: [["Miroir solaire", "miroirs solaires", "disc", "#f0c04a"], ["Fleur de soleil", "fleurs de soleil", "flower", "#f0a020", "elles tournent leur cœur vers toi"], ["Disque gravé", "disques gravés", "disc", "#d8a640"], ["Chaîne d'or", "chaînes d'or", "rope", "#f0c04a"]],
+    mini: { name: "Le Scorpion d'or", hit: "Pince", special: "Dard solaire", die: "fond comme de l'or au soleil", model: () => makeScorpion({ shell: "#e0b040", dark: "#8a6a20", sting: "#ffffff", eye: "#ff4a2a", k: 1.9 }) },
+    boss: { name: "Le Gardien du soleil", hit: "Poing solaire", special: "Rayon brûlant", die: "s'éteint lentement comme un coucher de soleil", model: () => makeGolem({ rock: "#e0b040", rock2: "#c8983a", eye: "#ffffff", glow: "#fff0a0", k: 1.6 }) },
+    elite: { name: "Le Chacal d'ébène", base: "chacal", model: () => makeQuad({ fur: "#2a2a30", dark: "#1a1a1e", snout: "#3a3a40", eye: "#f0c04a", ears: true, k: 1, legs: 0.5, scale: 1.5 }) },
+    ov: { ground: { ".": [0.92, 0.8, 0.52] }, sky: { low: "#fff0c8", k: 0.5 } } },
+  16: { name: "Les champs de cendre", camp: "le bastion des éclaireurs", zone: "la plaine fumante", ruins: "le village calciné", river: "la coulée de lave", north: "les cratères",
+    foes: ["salam", "braise", "golemc"], drop: ["une étincelle captive", "étincelles captives"], lost: { name: "Pierrick", rel: "Mon fils" },
+    p: [["Charbon ardent", "charbons ardents", "ore", "#ff6a1a"], ["Fleur de cendre", "fleurs de cendre", "flower", "#c8c0c0", "elles poussent dans la cendre tiède"], ["Page roussie", "pages roussies", "page", "#c8a878"], ["Chaîne de fer", "chaînes de fer", "rope", "#7a7a84"]],
+    mini: { name: "La Salamandre géante", f: 1, hit: "Morsure brûlante", special: "Jet de flammes", die: "plonge dans la lave et ne ressort pas", model: () => makeQuad({ fur: "#e0501a", dark: "#3a1a10", snout: "#f07a2a", eye: "#ffe040", k: 1, legs: 0.26, tail: 0.65, glow: "#ffe040", spikes: true, scale: 2 }) },
+    boss: { name: "Le Colosse de cendre", hit: "Poing de pierre", special: "Éruption", die: "s'écroule en une montagne de scories fumantes", model: () => makeGolem({ rock: "#4a4040", rock2: "#3a3232", eye: "#ff6a1a", glow: "#ff6a1a", k: 1.7 }) },
+    elite: { name: "La Salamandre noire", f: 1, base: "salam", model: () => makeQuad({ fur: "#2a2224", dark: "#1a1414", snout: "#3a2a2a", eye: "#ff4a2a", k: 1, legs: 0.26, tail: 0.6, glow: "#ff4a2a", scale: 1.5 }) } },
+  17: { name: "Les forges englouties", camp: "le camp des forgerons", zone: "les bassins de scories", ruins: "les forges englouties", river: "le chenal de métal fondu", north: "les galeries", blob: "C",
+    foes: ["golemc", "salam", "dechu"], drop: ["une écaille brûlante", "écailles brûlantes"], lost: { name: "Agathe", rel: "Mon apprentie", f: 1 },
+    p: [["Lingot de fer", "lingots de fer", "ore", "#9aa0a8"], ["Cristal de soufre", "cristaux de soufre", "crystal", "#f0f040", "ils poussent au bord des bassins"], ["Plan de forge", "plans de forge", "page", "#d8c8a0"], ["Rivet géant", "rivets géants", "ore", "#7a7a84"]],
+    mini: { name: "Le Forgeron déchu", hit: "Coup de marteau", special: "Frappe de l'enclume", die: "laisse tomber son marteau et se change en cendres", model: () => makeBiped({ body: "#3a3a44", skin: "#5a5a66", hair: "#2a2a30", apron: "#2a2020", wide: 1.3, bald: true, eyes: "#ff6a1a", maul: true, k: 1.7 }) },
+    boss: { name: "L'Automate des forges", hit: "Bras d'acier", special: "Vapeur brûlante", die: "s'arrête dans un long sifflement de vapeur", model: () => makeGolem({ rock: "#b07a3a", rock2: "#8a5a2a", eye: "#7fe0ff", glow: "#ff8a3a", k: 1.65 }) },
+    elite: { name: "Le Golem de fonte", base: "golemc", model: () => makeGolem({ rock: "#3a3a40", rock2: "#2a2a30", eye: "#ffe040", glow: "#ffe040", k: 1.1 }) } },
+  18: { name: "Le fleuve de lave", camp: "le ponton fortifié", zone: "les îlots de basalte", ruins: "le fort englouti", river: "le fleuve de lave", north: "la rive brûlée",
+    foes: ["braise", "golemc", "salam"], drop: ["un cœur de magma", "cœurs de magma"], lost: { name: "Victor", rel: "Mon frère" },
+    p: [["Éclat d'obsidienne", "éclats d'obsidienne", "crystal", "#2a2030"], ["Rose de feu", "roses de feu", "flower", "#ff4a1a", "elles fleurissent au bord de la lave"], ["Tablette de basalte", "tablettes de basalte", "tablet", "#4a4448"], ["Maillon d'acier", "maillons d'acier", "rope", "#a8a8b0"]],
+    mini: { name: "Le Grand brasier vivant", hit: "Flammèche", special: "Embrasement", die: "s'éteint dans un nuage de fumée noire", model: () => makeWisp("#ff5a1a", "#fff0a0", 2.1) },
+    boss: { name: "La Salamandre-mère", f: 1, hit: "Morsure de lave", special: "Vague de feu", die: "s'enfonce dans le fleuve de lave en sifflant", model: () => makeQuad({ fur: "#ff6a1a", dark: "#5a1a0a", snout: "#ffa040", eye: "#ffffff", k: 1, legs: 0.28, tail: 0.8, glow: "#ffffff", spikes: true, horns: true, scale: 2.4 }) },
+    elite: { name: "Le Colosse de basalte", base: "golemc", model: () => makeGolem({ rock: "#2a2626", rock2: "#1e1a1a", eye: "#ff3a1a", glow: "#ff3a1a", k: 1.1 }) },
+    ov: { zone: { w: 0.3, T: 0.04, m: 0.45 } } },
+  19: { name: "Les remparts noirs", camp: "le camp des assiégeants", zone: "le champ de bataille", ruins: "la caserne en ruine", river: "les douves de lave", north: "le chemin de ronde",
+    foes: ["dechu", "braise", "golemc"], drop: ["une étincelle captive", "étincelles captives"], lost: { name: "Gabrielle", rel: "Ma fille", f: 1 },
+    p: [["Étendard", "étendards", "flag", "#3a5aa8"], ["Racine de braise", "racines de braise", "herb", "#ff6a1a", "elles rougeoient dans la boue"], ["Fragment de blason", "fragments de blason", "disc", "#c8473a"], ["Chaîne de pont-levis", "chaînes de pont-levis", "rope", "#7a7a84"]],
+    mini: { name: "Le Chevalier noir", hit: "Taille", special: "Coup du bourreau", die: "pose un genou à terre et se disperse en cendres", model: () => makeBiped({ body: "#1e1e26", skin: "#3a3a44", hair: "#1a1a1e", bald: true, eyes: "#ff4a2a", sword: true, helm: "#2a2a34", plume: "#c8473a", k: 1.7 }) },
+    boss: { name: "Le Seigneur des remparts", hit: "Lame noire", special: "Jugement", die: "lâche son épée, qui se brise sur les pavés", model: () => makeBiped({ body: "#2a1a2a", skin: "#3a2a3a", hair: "#1a1a1e", bald: true, eyes: "#ff2a1a", sword: true, blade: "#ff6a3a", bladeGlow: "#ff3a1a", helm: "#3a2a3a", plume: "#f0c04a", wide: 1.3, k: 2.1 }) },
+    elite: { name: "Le Porte-étendard déchu", base: "dechu", model: () => makeBiped({ body: "#3a3a5a", skin: "#5a5a66", hair: "#2a2a30", bald: true, eyes: "#ff4a2a", sword: true, helm: "#4a4a66", plume: "#3a5aa8", k: 1.35 }) } },
+  20: { name: "Le trône de la Tour", camp: "le dernier camp", zone: "le jardin de cendres", ruins: "la salle des gardes", river: "le gouffre ardent", north: "la cour du trône",
+    foes: ["golemc", "dechu", "salam"], drop: ["un insigne", "insignes de la garde"], lost: { name: "Octave", rel: "Mon vieux maître" },
+    p: [["Cristal de la Tour", "cristaux de la Tour", "crystal", "#7fe0ff"], ["Fleur d'obsidienne", "fleurs d'obsidienne", "flower", "#6a4a8a", "elles poussent là où la lave a refroidi"], ["Page du Grand Livre", "pages du Grand Livre", "page", "#f6ecd0"], ["Chaîne d'or noir", "chaînes d'or noir", "rope", "#4a3a20"]],
+    mini: { name: "Le Golem d'obsidienne", hit: "Poing de verre noir", special: "Éclats tranchants", die: "se brise en mille éclats noirs", model: () => makeGolem({ rock: "#1e1a24", rock2: "#2a2430", eye: "#b07aff", glow: "#b07aff", k: 1.45 }) },
+    boss: { name: "Le Dragon de la Tour", hit: "Coup de griffes", special: "Souffle de feu", die: "replie ses ailes, s'incline… et te laisse passer", model: () => makeQuad({ fur: "#a8281a", dark: "#3a1010", snout: "#c8401a", eye: "#ffe040", horns: true, hornCol: "#f0e0c0", wings: "#6a1a10", spikes: true, glow: "#ffb03a", k: 1, legs: 0.5, tail: 0.8, scale: 2.7 }) },
+    elite: { name: "Le Champion déchu", base: "dechu", model: () => makeBiped({ body: "#4a3a20", skin: "#5a5a66", hair: "#2a2a30", bald: true, eyes: "#f0c04a", sword: true, blade: "#f0c04a", helm: "#8a6a2a", plume: "#f0c04a", k: 1.4 }) },
+    ov: { sky: { top: "#1a0a2a", mid: "#8a3a5a", low: "#f08a50", k: 0.65 } } },
+};
+const HALTES = {
+  10: ["Ondine, gardienne de la source", "Berthe, la marchande", "Arnaud, le forgeron"],
+  15: ["Nour, gardienne du puits", "Samira, la marchande", "Karim, le forgeron"],
+  20: ["Séléné, gardienne de la source", "Odile, la marchande", "Gontran, le forgeron"],
+};
+const cap1 = t => t.charAt(0).toUpperCase() + t.slice(1);
+const de = t => /^le /.test(t) ? "du " + t.slice(3) : /^les /.test(t) ? "des " + t.slice(4) : "de " + t;
+const QF = id => G.qf[id] || (G.qf[id] = { acc: {}, done: {}, kills: {}, got: [], drops: 0, fires: [], chest: false, bridge: false, mini: false, boss: false, elite: false, lost: 0 });
+const merge = (a, b) => { const o = { ...a }; for (const k in b || {}) o[k] = b[k] && typeof b[k] === "object" && !Array.isArray(b[k]) && a[k] && typeof a[k] === "object" ? { ...a[k], ...b[k] } : b[k]; return o; };
+
+/* ---- Carte : même canevas que l'étage 2, mais disposé au hasard (graine fixe) ---- */
+function genLayout(n, FD, B) {
+  const big = n >= 10, W = big ? 60 : 56, H = big ? 68 : 64, cx = W >> 1;
+  let seed = 1000 + n * 7919; const R = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const rv = Math.round(H * 0.47), campTop = H - 12, side = R() < 0.5 ? 1 : -1;
+  const bx = cx + (R() < 0.5 ? -1 : 1) * (4 + Math.floor(R() * 6));
+  const rx0 = side === 1 ? W - 15 : 3, ry0 = rv + 5, R2 = (lx, ly) => ({ x: side === 1 ? rx0 + lx : rx0 + 11 - lx, y: ry0 + ly });
+  const zx0 = side === 1 ? 2 : W - 16, zy0 = rv + 4, Z = (lx, ly) => ({ x: side === 1 ? zx0 + lx : zx0 + 13 - lx, y: zy0 + ly });
+  const lostX = bx < cx ? W - 10 : 9;
+  const E = { W, H, cx, rv, bx, side, campTop, start: { x: cx, y: H - 5 }, portal: { x: cx, y: H - 3 }, fire: { x: cx, y: H - 8 },
+    chef: { x: cx - 3, y: H - 9 }, aide: { x: cx + 3, y: H - 9 }, passeur: { x: bx + (bx < cx ? 2 : -2), y: rv + 4 },
+    savant: R2(3, 7), sage: Z(6, 4), mini: Z(4, 11), swamp: Z(7, 8), chest: R2(9, 2), door: R2(8, 5), braziers: [R2(2, 2), R2(9, 9), R2(2, 10)],
+    corners: [R2(0, 0), R2(11, 0), R2(0, 12), R2(11, 12)], boss: { x: cx, y: 8 }, arch: { x: cx, y: 3 },
+    lost: { x: lostX, y: 19 + Math.floor(R() * 5) }, elite: { x: bx < cx ? 10 : W - 11, y: 17 + Math.floor(R() * 4) }, north: { x: bx, y: 24 },
+    field: { x: cx, y: rv + 9 } };
+  const fx0 = side === 1 ? 17 : 16, fx1 = side === 1 ? W - 17 : W - 18;
+  const picks = [];
+  const used = new Set(); const take = (x, y) => { const k = x + "," + y; if (used.has(k)) return false; used.add(k); return true; };
+  for (let i = 0, t = 0; i < 4 && t < 200; t++) { const x = fx0 + Math.floor(R() * (fx1 - fx0)), y = rv + 5 + Math.floor(R() * (campTop - rv - 9)); if (x === cx || !take(x, y)) continue; picks.push({ id: "k1" + i, k: "k1", x, y }); i++; }
+  [[2, 2], [10, 6], [3, 14], [12, 12], [9, 1]].forEach(([a, b], i) => { const p = Z(a, b); take(p.x, p.y); picks.push({ id: "k2" + i, k: "k2", ...p }); });
+  [[4, 3], [9, 11], [1, 11]].forEach(([a, b], i) => { const p = R2(a, b); take(p.x, p.y); picks.push({ id: "k3" + i, k: "k3", ...p }); });
+  [0.14, 0.4, 0.82].forEach((f, i) => { let x = Math.round(W * f); if (Math.abs(x - bx) < 2 || Math.abs(x - cx) < 1) x += 3; picks.push({ id: "k4" + i, k: "k4", x, y: rv + 3 }); });
+  E.picks = picks;
+  // tuiles
+  const M = Array.from({ length: H }, () => Array(W).fill("."));
+  const set = (x, y, c) => { if (x >= 0 && y >= 0 && x < W && y < H) M[y][x] = c; };
+  const rect = (x0, y0, x1, y1, c) => { for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) set(x, y, c); };
+  const D = B.dens;
+  for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) { const r = R(); set(x, y, r < D.T ? "T" : r < D.T + D.o ? "o" : r < D.T + D.o + D.g ? "," : r < D.T + D.o + D.g + D.f ? "f" : "."); }
+  rect(0, 0, W - 1, 1, "T"); rect(0, H - 2, W - 1, H - 1, "T"); rect(0, 0, 1, H - 1, "T"); rect(W - 2, 0, W - 1, H - 1, "T");
+  // quelques îlots au nord (rochers ou étangs)
+  for (let i = 0; i < 3; i++) { const c = FD.blob || (R() < 0.5 ? "C" : "~"), bx0 = 5 + Math.floor(R() * (W - 10)), by0 = 17 + Math.floor(R() * (rv - 21)), r = 1.3 + R() * 1.6;
+    for (let y = by0 - 3; y <= by0 + 3; y++) for (let x = bx0 - 3; x <= bx0 + 3; x++) if (Math.hypot(x - bx0, (y - by0) * 1.2) < r && y > 15 && y < rv - 1) set(x, y, c); }
+  // zone sauvage
+  const Zd = B.zone;
+  for (let ly = 0; ly <= 15; ly++) for (let lx = 0; lx <= 13; lx++) { const p = Z(lx, ly), r = R(); set(p.x, p.y, r < Zd.w ? "~" : r < Zd.w + Zd.T ? "T" : r < Zd.w + Zd.T + Zd.m ? "m" : ","); }
+  for (let ly = 9; ly <= 13; ly++) for (let lx = 2; lx <= 6; lx++) { const p = Z(lx, ly); set(p.x, p.y, "m"); }
+  for (let ly = 3; ly <= 5; ly++) for (let lx = 4; lx <= 8; lx++) { const p = Z(lx, ly); set(p.x, p.y, "m"); }
+  // ruines
+  for (let ly = 0; ly <= 12; ly++) for (let lx = 0; lx <= 11; lx++) { const p = R2(lx, ly); set(p.x, p.y, R() < 0.15 ? "," : "."); }
+  for (let lx = 0; lx <= 11; lx++) { const a = R2(lx, 0), b = R2(lx, 12); set(a.x, a.y, "S"); set(b.x, b.y, "S"); }
+  for (let ly = 0; ly <= 12; ly++) { const a = R2(0, ly), b = R2(11, ly); set(a.x, a.y, "S"); set(b.x, b.y, "S"); }
+  const loc = (lx, ly, c) => { const p = R2(lx, ly); set(p.x, p.y, c); };
+  [[3, 12], [4, 12], [5, 12], [0, 5], [0, 6], [0, 7], [1, 0], [4, 0], [11, 4], [11, 8], [8, 12], [0, 10]].forEach(([a, b]) => loc(a, b, "."));
+  for (let lx = 6; lx <= 10; lx++) loc(lx, 5, "S"); for (let ly = 1; ly <= 5; ly++) loc(6, ly, "S");
+  for (let ly = 1; ly <= 4; ly++) for (let lx = 7; lx <= 10; lx++) loc(lx, ly, ".");
+  loc(8, 5, "d"); loc(9, 2, "K"); [[4, 8], [5, 8], [8, 10], [3, 4]].forEach(([a, b]) => loc(a, b, "S"));
+  E.braziers.forEach(b => set(b.x, b.y, "M"));
+  // rivière (ou lave) et passage
+  rect(2, rv, W - 3, rv + 2, "~"); for (let x = 2; x < W - 2; x++) if (M[rv + 3][x] === "T" || M[rv + 3][x] === "o") set(x, rv + 3, R() < 0.5 ? "," : ".");
+  for (let y = rv; y <= rv + 2; y++) set(bx, y, "x");
+  // le gardien du nord, derrière le mur et la porte
+  rect(2, 14, W - 3, 14, "T"); rect(cx - 1, 14, cx + 1, 14, "r");
+  for (let y = 2; y <= 13; y++) for (let x = 2; x < W - 2; x++) { if (x < 13 || x > W - 14) set(x, y, "T"); else { const r = R(); set(x, y, r < 0.05 ? "T" : r < 0.08 ? "o" : r < 0.2 ? "f" : r < 0.3 ? "," : "."); } }
+  rect(13, 2, W - 14, 2, "C"); rect(18, 3, W - 19, 3, "C"); set(E.arch.x, E.arch.y, "A");
+  rect(cx - 4, 5, cx + 4, 11, ".");
+  // camp
+  rect(2, campTop - 2, W - 3, campTop - 1, "T");
+  for (let y = campTop; y <= H - 3; y++) for (let x = 2; x < W - 2; x++) set(x, y, x < cx - 12 || x > cx + 12 ? "T" : "s");
+  const HS = [[-10, 1], [8, 1], [-10, 5], [8, 5]].map(([dx, dy], i) => ({ x0: cx + dx, y0: campTop + dy, x1: cx + dx + 2, y1: campTop + dy + 2, roof: B.roofs[i], wall: B.walls[i % 2] }));
+  HS.forEach(h => rect(h.x0, h.y0, h.x1, h.y1, "H")); set(E.fire.x, E.fire.y, "w");
+  // chemins
+  for (let y = rv + 3; y <= H - 4; y++) if (M[y][cx] !== "w") set(cx, y, ":");
+  rect(cx - 1, H - 9, cx - 1, H - 7, ":"); rect(cx + 1, H - 9, cx + 1, H - 7, ":");
+  rect(Math.min(cx, bx), rv + 3, Math.max(cx, bx), rv + 3, ":");
+  for (let y = 22; y < rv; y++) set(bx, y, ":");
+  rect(Math.min(bx, cx, lostX), 22, Math.max(bx, cx, lostX), 22, ":"); rect(lostX, Math.min(22, E.lost.y), lostX, Math.max(22, E.lost.y), ":");
+  for (let y = 4; y <= 21; y++) if (y !== 14) set(cx, y, ":");
+  const ry = R2(0, 6).y, rIn = R2(0, 6).x; rect(Math.min(cx, rIn), ry, Math.max(cx, rIn), ry, ":");
+  const zy = Z(0, 10).y, zIn = Z(13, 10).x; rect(Math.min(cx, zIn), zy, Math.max(cx, zIn), zy, ":");
+  // points importants dégagés
+  const clear = p => { if ("To~SCmf,".includes(M[p.y][p.x])) set(p.x, p.y, "."); };
+  [E.start, E.lost, E.elite, E.boss, E.chef, E.aide, E.passeur, E.savant, E.sage].forEach(clear);
+  rect(E.mini.x - 1, E.mini.y - 1, E.mini.x + 1, E.mini.y + 1, "m");
+  rect(E.lost.x - 1, E.lost.y - 1, E.lost.x + 1, E.lost.y + 1, "."); rect(E.elite.x - 1, E.elite.y - 1, E.elite.x + 1, E.elite.y + 1, ".");
+  picks.forEach(p => { if (!".,:m".includes(M[p.y][p.x])) set(p.x, p.y, p.k === "k2" ? "m" : "."); });
+  set(E.portal.x, E.portal.y, "P");
+  // tout doit rester accessible (portes ouvertes) : sinon on taille un passage
+  const pass = c => !"TC~oHwSMKF".includes(c);
+  const reach = () => { const seen = new Uint8Array(W * H), q = [E.start]; seen[E.start.y * W + E.start.x] = 1;
+    while (q.length) { const c = q.pop(); for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = c.x + a, y = c.y + b; if (x < 0 || y < 0 || x >= W || y >= H || seen[y * W + x] || !pass(M[y][x])) continue; seen[y * W + x] = 1; q.push({ x, y }); } }
+    return seen; };
+  const targets = [E.chef, E.aide, E.passeur, E.savant, E.sage, E.mini, E.boss, E.lost, E.elite, ...picks, ...E.braziers, E.chest, E.arch];
+  for (let pass2 = 0; pass2 < 3; pass2++) {
+    const seen = reach(); let fixed = false;
+    for (const t of targets) {
+      const ok = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => seen[(t.y + b) * W + t.x + a]);
+      if (ok) continue;
+      let best = null, bd = 1e9; for (let y = 3; y < H - 3; y++) for (let x = 3; x < W - 3; x++) if (seen[y * W + x]) { const d = Math.abs(x - t.x) + Math.abs(y - t.y); if (d < bd) { bd = d; best = { x, y }; } }
+      if (!best) continue;
+      let x = t.x, y = t.y; const carve = () => { if ("TCo~".includes(M[y][x]) && y !== 14 && (y < rv || y > rv + 2) && x > 1 && x < W - 2) set(x, y, "."); };
+      while (x !== best.x) { x += Math.sign(best.x - x); carve(); } while (y !== best.y) { y += Math.sign(best.y - y); carve(); }
+      fixed = true;
+    }
+    if (!fixed) break;
+  }
+  return { MAP: M.map(r => r.join("")), E, HS };
+}
+
+/* ---- Fabrique d'un étage ---- */
+function genFloor(n) {
+  const FD = FLOORS[n], p = Math.ceil(n / 5), j = (n - 1) % 5, B = merge(BIOMES[p], FD.ov || {}), id = "e" + n;
+  const { MAP, E, HS } = genLayout(n, FD, B);
+  // habitants
+  const mi = (n - 3) * 3, fi = (n - 3) * 3, M_ = k => NAMES_M[(mi + k) % NAMES_M.length], F_ = k => NAMES_F[(fi + k) % NAMES_F.length];
+  const savF = B.savantF, roleT = r => (B.roles[r][j] || B.roles[r].find(Boolean));
+  const who = { chef: M_(0), aide: F_(0), savant: savF ? F_(1) : M_(1), sage: savF ? F_(2) : F_(1), passeur: M_(2) };
+  const NP = {}; for (const r of ["chef", "aide", "passeur", "savant", "sage"]) NP[r] = { name: `${who[r]}, ${roleT(r)}`, x: E[r].x, y: E[r].y };
+  const short = r => who[r];
+  // monstres de l'étage
+  const base = foeBase(n), kinds = FD.foes.map(k => k + n);
+  FD.foes.forEach((k, i) => { const P = FOE_POOL[k]; FOES[kinds[i]] = { name: P.name, pl: P.pl, hp: Math.round(P.hp * base.hp), atk: Math.round(P.atk * base.atk), gold: [2 + n, 5 + Math.round(1.6 * n)], drop: 38, cost: 1, die: P.die, hit: P.hit, model: P.model }; });
+  const bAtk = Math.round(base.atk), palier = n % 5 === 0;
+  FOES["mini" + n] = { name: FD.mini.name, hp: Math.round(2.6 * base.hp), atk: bAtk + 2, gold: [15 + 3 * n, 15 + 3 * n], drop: 100, cost: 2, die: FD.mini.die, hit: FD.mini.hit, special: { name: FD.mini.special, dmg: Math.round((bAtk + 2) * 1.8) }, model: FD.mini.model };
+  FOES["boss" + n] = { name: FD.boss.name, hp: Math.round((palier ? 4.2 : 3.4) * base.hp), atk: bAtk + 3, gold: [25 + 5 * n, 25 + 5 * n], drop: 100, cost: 2, die: FD.boss.die, hit: FD.boss.hit, special: { name: FD.boss.special, dmg: Math.round((bAtk + 3) * (palier ? 2.1 : 1.9)) }, model: FD.boss.model };
+  if (FD.elite) { const P = FOE_POOL[FD.elite.base]; FOES["elite" + n] = { name: FD.elite.name, hp: Math.round(2.1 * P.hp * base.hp), atk: Math.round(P.atk * base.atk) + 2, gold: [12 + 2 * n, 12 + 2 * n], drop: 100, cost: 2, die: P.die, hit: P.hit, special: { name: "Furie", dmg: Math.round((P.atk * base.atk + 2) * 1.6) }, model: FD.elite.model }; }
+  const [c1, c2, c3] = kinds.map(k => FOES[k]);
+  // objets à ramasser
+  const PI = {}; FD.p.forEach(([name, pl, shape, col, hint], i) => { PI["k" + (i + 1)] = { name, pl, shape, col, hint }; });
+  const gotK = (q, k) => E.picks.filter(o => o.k === k && q.got.includes(o.id)).length;
+  const NEED = { k1: 4, k2: 5, k3: 3, k4: 3 }, QOF = { k1: "f2", k2: "f3", k3: "f5", k4: "f8" };
+  const WHO = { k1: `${short("chef")} en voudrait sûrement.`, k2: `${short("aide")} saurait quoi en faire.`, k3: `Quelqu'un, dans ${FD.ruins}, cherche ça.`, k4: "De quoi réparer le passage ?" };
+  const nextTxt = palier ? `la Halte du palier ${n}` : `l'étage ${n + 1}`;
+  const mf = FD.mini.f, lf = FD.lost.f, el = FD.elite;
+  const g = x => Math.round(x * (1 + 0.3 * (n - 2)));
+  // quêtes
+  const QL = [
+    { id: "f1", giver: "chef", title: `Les ${c1.pl} du camp`, turnIn: false, prog: q => `Vaincre 5 ${c1.pl} : ${Math.min(5, q.kills.c1 || 0)} / 5.`, ok: q => (q.kills.c1 || 0) >= 5 },
+    { id: "f2", giver: "chef", title: cap1(PI.k1.pl), turnIn: true, prog: q => gotK(q, "k1") >= 4 ? `Rapporter les ${PI.k1.pl} à ${short("chef")}.` : `Trouver 4 ${PI.k1.pl} entre le camp et ${FD.river} : ${gotK(q, "k1")} / 4.`, ok: q => gotK(q, "k1") >= 4 },
+    { id: "f3", giver: "aide", title: cap1(PI.k2.pl), turnIn: true, prog: q => gotK(q, "k2") >= 5 ? `Rapporter les ${PI.k2.pl} à ${short("aide")}.` : `En trouver 5 dans ${FD.zone} : ${gotK(q, "k2")} / 5.`, ok: q => gotK(q, "k2") >= 5 },
+    { id: "f4", giver: "aide", title: cap1(FD.drop[1]), turnIn: true, prog: q => q.drops >= 3 ? `Rapporter les ${FD.drop[1]} à ${short("aide")}.` : `Vaincre des ${c2.pl} pour leurs ${FD.drop[1]} : ${q.drops} / 3.`, ok: q => q.drops >= 3 },
+    { id: "f5", giver: "savant", title: cap1(PI.k3.pl), turnIn: true, prog: q => gotK(q, "k3") >= 3 ? `Rapporter les ${PI.k3.pl} à ${short("savant")}.` : `En retrouver 3 dans ${FD.ruins} : ${gotK(q, "k3")} / 3.`, ok: q => gotK(q, "k3") >= 3 },
+    { id: "f6", giver: "savant", title: "Les trois feux", turnIn: false, need: q => q.done.f5, prog: q => q.fires.length < 3 ? `Allumer les 3 braseros ${de(FD.ruins)} : ${q.fires.length} / 3.` : "Le caveau est ouvert : ouvre le coffre.", ok: q => q.chest },
+    { id: "f7", giver: "sage", title: FD.mini.name, turnIn: false, prog: () => `Vaincre ${FD.mini.name.replace(/^L[ea] |^L'/, m => m.toLowerCase())}, au fond ${de(FD.zone)}.`, ok: q => q.mini, doneTxt: "Le passage du nord s'est ouvert." },
+    { id: "f8", giver: "passeur", title: `Le passage sur ${FD.river}`, turnIn: true, prog: q => gotK(q, "k4") >= 3 ? `Rapporter les ${PI.k4.pl} à ${short("passeur")}.` : `Trouver 3 ${PI.k4.pl} sur la rive sud : ${gotK(q, "k4")} / 3.`, ok: q => gotK(q, "k4") >= 3, doneTxt: "Le passage est réparé : le nord est ouvert." },
+    { id: "f9", giver: "chef", title: `Où est ${FD.lost.name} ?`, turnIn: true, need: q => q.bridge, prog: q => q.lost === 1 ? `${FD.lost.name} te suit : ramène-${lf ? "la" : "le"} à ${short("chef")}, au camp.` : `Retrouver ${FD.lost.name}, au nord ${de(FD.river)}.`, ok: q => q.lost === 1 },
+    { id: "f10", giver: "auto", title: FD.boss.name, turnIn: false, prog: () => `${FD.boss.f ? "Elle" : "Il"} garde l'escalier, tout au nord.`, ok: q => q.boss },
+  ];
+  if (n >= 8) QL.push({ id: "f11", giver: "passeur", title: `Les ${c3.pl} du nord`, turnIn: false, need: q => q.bridge, prog: q => `Vaincre 5 ${c3.pl} au nord ${de(FD.river)} : ${Math.min(5, q.kills.c3 || 0)} / 5.`, ok: q => (q.kills.c3 || 0) >= 5 });
+  if (el) QL.push({ id: "f12", giver: "sage", title: el.name, turnIn: false, need: q => q.bridge, prog: () => `Vaincre ${el.name.replace(/^L[ea] |^L'/, m => m.toLowerCase())}, qui rôde dans ${FD.north}.`, ok: q => q.elite });
+  const lostPron = lf ? "elle" : "il";
+  const INTR = {
+    f1: `« Des <b>${c1.pl}</b> rôdent autour du camp, la nuit. Débarrasse-nous de <b>cinq</b> d'entre eux et on dormira mieux. »`,
+    f2: `« Et tant que tu y es : entre le camp et ${FD.river}, on trouve des <b>${PI.k1.pl}</b>. Rapporte-m'en quatre. »`,
+    f3: `« Dans ${FD.zone}, on trouve des <b>${PI.k2.pl}</b> : ${PI.k2.hint}. Rapporte-m'en cinq, et je te prépare des élixirs. »`,
+    f4: `« Les <b>${c2.pl}</b> laissent parfois tomber ${FD.drop[0]} quand on les bat. Rapporte-m'en trois. »`,
+    f5: `« Quelque part dans ${FD.ruins}, il reste trois <b>${PI.k3.pl}</b> à retrouver. Sans ça, impossible de relire la formule des feux. »`,
+    f6: `« Voilà la formule. Prends cette <b>flamme qui ne s'éteint pas</b> et allume les <b>trois braseros</b> ${de(FD.ruins)} : le caveau s'ouvrira. Ce qu'il contient est à toi. »`,
+    f7: `« <b>${FD.mini.name}</b> s'est installé${mf ? "e" : ""} au fond ${de(FD.zone)}. Tant qu'${mf ? "elle" : "il"} sera là, ${B.gateLock}. Vaincs-${mf ? "la" : "le"}, et le chemin du nord s'ouvrira. »`,
+    f8: `« Le passage sur ${FD.river} est coupé. Trouve-moi trois <b>${PI.k4.pl}</b> le long de la rive sud, et je le répare. »`,
+    f9: `« Le passage est réparé ? Alors c'est par là qu'${lostPron} est parti${lf ? "e" : ""}… ${FD.lost.rel} <b>${FD.lost.name}</b> a filé au nord ${de(FD.river)}. Ramène-${lf ? "la" : "le"}-moi, je t'en supplie. »`,
+    f11: `« De l'autre côté, les <b>${c3.pl}</b> pullulent. Chasses-en <b>cinq</b>, que le passage reste sûr. »`,
+    f12: el ? `« Une bête rôde dans ${FD.north} : <b>${el.name}</b>. Personne n'en revient indemne. Si tu ${el.f ? "la" : "le"} vaincs, je te confie mon plus beau trésor. »` : "",
+  };
+  const reward = (qid, q) => {
+    const it = (r, sl) => { const x = makeItem(r, sl); giveItem(x); return `<b class="rar-${x.rarity}">${esc(x.name)}</b>`; };
+    if (qid === "f1") { G.gold += g(25); return `${short("chef")} te donne ${g(25)} or et ${it(1)}.`; }
+    if (qid === "f2") { G.gold += g(20); G.kits += 2; return `${short("chef")} te remercie : ${g(20)} or et 2 trousses de réparation.`; }
+    if (qid === "f3") { G.gold += g(15); G.elixirs += 2; return `${short("aide")} sourit : ${g(15)} or et 2 élixirs, tout frais.`; }
+    if (qid === "f4") return `${short("aide")} t'offre ${it(2, "charm")}, Épique.`;
+    if (qid === "f5") { G.gold += g(25); q.acc.f6 = true; return `${short("savant")} remet tout en ordre : ${g(25)} or.</p><p>${INTR.f6}`; }
+    if (qid === "f6") { G.gold += g(30); return `Dans le coffre : ${g(30)} or et ${it(2, "weapon")}, Épique.`; }
+    if (qid === "f8") { G.gold += g(15); q.bridge = true; return `${short("passeur")} se met au travail : <b>le passage sur ${FD.river} est réparé</b>. Et ${g(15)} or pour ta peine.`; }
+    if (qid === "f9") { G.gold += g(30); G.potions += 2; q.lost = 2; return `${short("chef")} serre ${FD.lost.name} dans ses bras. ${g(30)} or, 2 infusions et ${it(1, "armor")} pour toi.`; }
+    if (qid === "f11") { G.gold += g(25); return `${short("passeur")} te tend ${g(25)} or et ${it(2, "armor")}, Épique.`; }
+    if (qid === "f12") { G.gold += g(40); const r = Math.random() < 0.25 ? 3 : 2; return `${short("sage")} tient parole : ${g(40)} or et ${it(r)}, ${RARITY[r]}.`; }
+    return "";
+  };
+  const L = {
+    id, n, E, B, FD, PI, kinds, name: `Étage ${n} · ${FD.name}`, loading: `Chargement : ${FD.name.toLowerCase()}…`,
+    W: E.W, H: E.H, MAP, NPCS: NP, QUESTS: QL, START: E.start, PORTAL: E.portal, houses: HS,
+    qs: () => QF(id), block: "TC~oHwSMKdxrA",
+    tile: c => { const q = QF(id); if (c === "r" && q.mini) return ","; if (c === "x" && q.bridge) return "B"; if (c === "d" && q.fires.length >= 3) return "."; if (c === "A" && q.boss) return "E"; return c; },
+    near: { H: "maison", w: "feu", M: "brasero", K: "coffre", d: "porte", x: "pont", r: "ronces", A: "arche" },
+    labels: { feu: "Se réchauffer au feu", brasero: "Allumer le brasero", coffre: "Ouvrir le coffre", porte: "Examiner la porte", pont: "Examiner le passage", ronces: "Examiner le passage du nord", arche: "Examiner l'arche", maison: "Frapper à la porte" },
+    firstHint: `${cap1(FD.camp)} est juste après l'arrivée sur l'étage ${n}. Les « ! » dorés signalent quelqu'un qui a besoin d'aide.`,
+    firstTip: `Les habitants ${de(FD.camp)} ont besoin d'aide (« ! » dorés). Pas de repos avant la Halte du palier ${p * 5} !`,
+    intros: INTR,
+    idle: { chef: "« Le camp dort tranquille grâce à toi. »", aide: "« Mes élixirs n'ont jamais été aussi bons. »", passeur: "« Le passage tiendra cent ans. »", sage: "« Le nord respire de nouveau. »", savant: "« Tout est en ordre. Merci, voyageur. »" },
+    idleExtra: (k, q) => k === "sage" && q.mini && !q.boss ? `<p>« ${FD.boss.name} garde l'escalier. Ne ${FD.boss.f ? "la" : "le"} sous-estime pas. »</p>` : "",
+    afterAccept: q => { if ((q.kills.c1 || 0) >= 5 && q.acc.f1 && !q.done.f1) completeQuest("f1"); else if ((q.kills.c3 || 0) >= 5 && q.acc.f11 && !q.done.f11) completeQuest("f11"); else if (q.elite && q.acc.f12 && !q.done.f12) completeQuest("f12"); },
+    reward, afterComplete: qid => { if (qid === "f8" && F) buildMinimap(); },
+    onKill: sl => {
+      const q = QF(id);
+      if (sl.kind === kinds[0]) { q.kills.c1 = (q.kills.c1 || 0) + 1; return q.acc.f1 && !q.done.f1 ? `<p>${cap1(c1.pl)} : ${Math.min(5, q.kills.c1)} / 5.</p>` : ""; }
+      if (sl.kind === kinds[1]) { if (q.acc.f4 && q.drops < 3) { q.drops++; return `<p>Tu récupères ${FD.drop[0]} (${q.drops} / 3).</p>`; } return ""; }
+      if (sl.kind === kinds[2]) { q.kills.c3 = (q.kills.c3 || 0) + 1; return q.acc.f11 && !q.done.f11 ? `<p>${cap1(c3.pl)} : ${Math.min(5, q.kills.c3)} / 5.</p>` : ""; }
+      if (sl.kind === "mini" + n) { q.mini = true; q.acc.f7 = true; q.done.f7 = true; q.acc.f10 = true; return `<p><b>Quête terminée : ${esc(FD.mini.name)}.</b> Au loin, vers le nord, un grondement : <b>le passage du nord s'ouvre</b>. ${esc(FD.boss.name)} t'attend.</p>`; }
+      if (sl.kind === "boss" + n) { q.boss = true; q.done.f10 = true; return `<p class="hint">L'arche du nord s'illumine : <b>l'escalier vers ${nextTxt}</b> est ouvert.</p>`; }
+      if (sl.kind === "elite" + n) { q.elite = true; return ""; }
+      return "";
+    },
+    afterKill: q => { if (q.acc.f1 && !q.done.f1 && (q.kills.c1 || 0) >= 5) completeQuest("f1"); else if (q.acc.f11 && !q.done.f11 && (q.kills.c3 || 0) >= 5) completeQuest("f11"); else if (q.acc.f12 && !q.done.f12 && q.elite) completeQuest("f12"); },
+    spawn: () => {
+      const q = QF(id), s = [], avoid = [...E.picks, E.lost];
+      const add = (kind, k, x0, y0, x1, y1) => { const free = freeSpots(x0, y0, x1, y1, avoid); for (let i = 0; i < k; i++) { const pt = pickSpot(free); if (pt) s.push({ kind, x: pt.x, y: pt.y }); } };
+      const zx = E.side === 1 ? [2, 15] : [E.W - 16, E.W - 3], rx = E.side === 1 ? [E.W - 15, E.W - 4] : [3, 14];
+      add(kinds[0], 6, Math.min(zx[1], rx[1]) + 1, E.rv + 4, Math.max(zx[0], rx[0]) - 1, E.campTop - 4);
+      add(kinds[1], 5, zx[0], E.rv + 4, zx[1], E.rv + 19);
+      add(kinds[0], 2, rx[0], E.rv + 5, rx[1], E.rv + 17); add(kinds[1], 1, rx[0], E.rv + 5, rx[1], E.rv + 17);
+      add(kinds[2], 6, 3, 16, E.W - 4, E.rv - 1);
+      if (!q.mini) s.push({ id: "mini", kind: "mini" + n, x: E.mini.x, y: E.mini.y, big: true });
+      if (!q.boss) s.push({ id: "boss", kind: "boss" + n, x: E.boss.x, y: E.boss.y, big: true });
+      if (el && !q.elite) s.push({ id: "elite", kind: "elite" + n, x: E.elite.x, y: E.elite.y, big: true });
+      return s;
+    },
+    roam: (x, y, s) => Math.abs(x - s.hx) <= 5 && Math.abs(y - s.hy) <= 5 && y < E.campTop - 2 && (s.hy > E.rv + 2 ? y > E.rv + 2 : y < E.rv && (y > 14 || s.hy <= 14)),
+    arrive: h => {
+      const q = QF(id), o = E.picks.find(o => o.x === h.x && o.y === h.y && !q.got.includes(o.id));
+      if (o) { q.got.push(o.id); const I = PI[o.k]; toast(`${I.name} ${gotK(q, o.k)} / ${NEED[o.k]}`); if (!q.acc[QOF[o.k]]) toast(WHO[o.k]); }
+      if (h.x === E.lost.x && h.y === E.lost.y && q.lost === 0) { q.lost = 1; q.acc.f9 = true; toast(`« Tu me ramènes au camp ? » ${FD.lost.name} te suit.`); }
+    },
+    interact: what => {
+      const q = QF(id), h = F.hero;
+      if (what === "feu") return info("Le feu de camp", `<p>Le feu crépite. ${short("chef")} grommelle : « Pas le temps de dormir. Dans la Tour, on ne se repose qu'aux Haltes. »</p>`);
+      if (what === "maison") return info("Une maison", `<p>${B.house}</p>`);
+      if (what === "pont") return info(`Le passage sur ${FD.river}`, `<p>Le passage s'est effondré. ${short("passeur")}, sur la rive, saurait le réparer.</p>`);
+      if (what === "ronces") return info(B.gateName, `<p>${B.gateTxt} ${short("sage")}, dans ${FD.zone}, en sait peut-être plus.</p>`);
+      if (what === "arche") return info("L'arche du nord", `<p>Une arche de pierre voilée d'or. Derrière, un escalier monte vers ${nextTxt}. ${esc(FD.boss.name)} garde le passage.</p>`);
+      if (what === "porte") return info("La porte du caveau", "<p>Une lourde porte gravée de trois flammes. Elle ne bouge pas d'un pouce.</p>");
+      if (what === "coffre") { if (q.chest) return info("Le coffre", "<p>Vide. Ça valait le détour.</p>"); q.chest = true; q.acc.f6 = true; completeQuest("f6"); return; }
+      if (what === "brasero") {
+        let bi = 0, bd = 99; E.braziers.forEach((b, i) => { const d = Math.hypot(b.x - h.rx, b.y - h.ry); if (d < bd) { bd = d; bi = i; } });
+        if (q.fires.includes(bi)) return info("Le brasero", "<p>Une flamme bleue y danse, sans fumée.</p>");
+        if (!q.done.f5) return info("Un brasero froid", `<p>Couvert de runes, et froid comme la pierre. Il faudrait une flamme qui ne s'éteint pas… ${short("savant")}, dans ${FD.ruins}, en sait peut-être plus.</p>`);
+        q.fires.push(bi); save();
+        if (q.fires.length >= 3) info("Le caveau s'ouvre", "<p>Le troisième brasero s'embrase. Dans un grondement, <b>la porte du caveau</b> glisse sur le côté.</p>", "Continuer", () => setMsg(floorHint()));
+        else toast(`Brasero allumé : ${q.fires.length} / 3`);
+        setMsg(floorHint());
+      }
+    },
+    objective: q => {
+      const N = NP, nx = k => E.picks.find(o => o.k === k && !q.got.includes(o.id));
+      if (!Object.keys(q.acc).length) return N.chef;
+      if (q.lost === 1) return N.chef;
+      for (const x of QL) {
+        if (!q.acc[x.id] || q.done[x.id]) continue;
+        if (x.id === "f2") return gotK(q, "k1") >= 4 ? N.chef : nx("k1");
+        if (x.id === "f3") return gotK(q, "k2") >= 5 ? N.aide : nx("k2");
+        if (x.id === "f4") return q.drops >= 3 ? N.aide : E.swamp;
+        if (x.id === "f5") return gotK(q, "k3") >= 3 ? N.savant : nx("k3");
+        if (x.id === "f6") return q.fires.length >= 3 ? E.chest : E.braziers.find((b, i) => !q.fires.includes(i));
+        if (x.id === "f7") return E.mini;
+        if (x.id === "f8") return gotK(q, "k4") >= 3 ? N.passeur : nx("k4");
+        if (x.id === "f9") return E.lost;
+        if (x.id === "f10") return E.boss;
+        if (x.id === "f12") return E.elite;
+      }
+      if (q.boss) return E.arch;
+      const k = Object.keys(N).find(npcHasNews); return k ? N[k] : null;
+    },
+    hint: q => {
+      if (q.lost === 1) return `${FD.lost.name} te suit. Ramène-${lf ? "la" : "le"} à ${short("chef")}, au camp.`;
+      const c = curQuestHint(q); if (c) return c;
+      if (q.boss) return `L'arche du nord est ouverte : l'escalier monte vers ${nextTxt}.`;
+      return "D'autres habitants ont peut-être besoin d'aide. Cherche les « ! ».";
+    },
+    build: genBuild, draw: genDraw,
+    mm: (x, S, dot) => {
+      const q = QF(id), W0 = B.mm || {};
+      if (q.bridge) { x.fillStyle = "#a87344"; x.fillRect(E.bx * S, E.rv * S, S, 3 * S); }
+      if (q.mini) { x.fillStyle = W0[","] || "#8f8a3e"; x.fillRect((E.cx - 1) * S, 14 * S, 3 * S, S); }
+      E.picks.forEach(o => { if (!q.got.includes(o.id) && (o.k === "k2" || q.acc[QOF[o.k]])) dot(o.x, o.y, o.k === "k2" ? "#9ff0ff" : "#ffe08a", 1.2); });
+      E.braziers.forEach((b, i) => dot(b.x, b.y, q.fires.includes(i) ? "#7fd4ff" : "#5e554c", 1.3));
+    },
+    journalExtra: q => q.boss ? `<div class="hint">L'arche du nord est ouverte : l'escalier monte vers ${nextTxt}.</div>` : "",
+    looks: genLooks(B, n),
+    npcRot: { passeur: Math.PI }, mixamo: { chef: n % 2 ? "ouvrier" : "citadin", aide: n % 2 ? "paysanne" : "maria" },
+    groundCol: c => B.ground[c] || ("To".includes(c) ? B.ground["."] : undefined), pal: B.pal, farCol: B.farCol, mmCol: B.mm, sky: B.sky,
+  };
+  return L;
+}
+function genLooks(B, n) {
+  const C = B.cloth, sk = ["#f1c7a0", "#e0a77f", "#c68a5e", "#8d5a3a", "#f1d7c0"], hair = ["#3b2a1e", "#7a3b2a", "#c4702e", "#e0c070", "#1c1a1e"], k = i => (n * 3 + i) % 5;
+  const p = B.key;
+  return {
+    chef: { body: C[k(0)], skin: sk[k(1)], hair: hair[k(2)], apron: "#5e3e22", beard: true, wide: 1.15, hammer: p !== "neige", hat: p === "neige" ? "#3b4a55" : undefined },
+    aide: { body: C[k(1)], skin: sk[k(2)], hair: hair[k(3)], hat: p === "sable" ? "#f0e0c0" : "#8a5a32", dress: true },
+    savant: B.savantF ? { body: C[k(2)], skin: sk[k(3)], hair: "#e8e8e8", dress: true, staff: true, hat: "#3a2e55" } : { body: C[k(2)], skin: sk[k(3)], hair: "#e8e8e8", hat: "#3a2e55", beard: true, staff: true },
+    sage: { body: p === "bois" ? "#8fbf4a" : C[k(3)], skin: p === "bois" ? "#cfe8b0" : sk[k(4)], hair: p === "cendre" ? "#c8473a" : "#e0a83a", dress: true, tails: true, cheek: "#e8a050" },
+    passeur: { body: C[k(4)], skin: sk[k(0)], hair: "#d0d0d0", hat: "#3b4a55", beard: true, rod: true },
+  };
+}
+
+/* ---- Décor 3D d'un étage généré ---- */
+function makeLoot(shape, col) {
+  const g = new THREE.Group(), glow = sm(col, { em: col, ei: 0.55 });
+  const add = (geo, m, x, y, z) => { const me = mesh(geo, m, x, y, z); g.add(me); return me; };
+  if (shape === "lantern") { add(new THREE.CylinderGeometry(0.1, 0.12, 0.24, 8), sm("#3a2e22"), 0, 0.14, 0); add(new THREE.SphereGeometry(0.09, 10, 8), glow, 0, 0.16, 0); add(new THREE.TorusGeometry(0.06, 0.012, 6, 12), sm("#3a2e22"), 0, 0.32, 0); }
+  else if (shape === "flower") { add(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 4), sm("#3c8a45"), 0, 0.11, 0); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; add(new THREE.SphereGeometry(0.06, 8, 6), glow, Math.cos(a) * 0.08, 0.24, Math.sin(a) * 0.08).scale.y = 0.5; } add(new THREE.SphereGeometry(0.04, 8, 6), sm("#f0d040", { em: "#f0b030", ei: 0.6 }), 0, 0.25, 0); }
+  else if (shape === "tablet" || shape === "disc") { const t = add(shape === "disc" ? new THREE.CylinderGeometry(0.17, 0.17, 0.04, 18) : new THREE.BoxGeometry(0.28, 0.36, 0.05), glow, 0, 0.22, 0); t.rotation.x = shape === "disc" ? 1.2 : -0.35; }
+  else if (shape === "rope") { const t = add(new THREE.TorusGeometry(0.16, 0.045, 6, 14), glow, 0, 0.08, 0); t.rotation.x = Math.PI / 2; const u = add(new THREE.TorusGeometry(0.12, 0.04, 6, 12), sm(col), 0, 0.16, 0); u.rotation.x = Math.PI / 2; }
+  else if (shape === "page") { const pg = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.38), new THREE.MeshStandardMaterial({ color: col, emissive: "#a08a50", emissiveIntensity: 0.3, side: THREE.DoubleSide })); pg.rotation.x = -0.9; g.add(at(pg, 0, 0.3, 0)); }
+  else if (shape === "log") { const l = add(new THREE.CylinderGeometry(0.12, 0.12, 0.6, 10), glow, 0, 0.14, 0); l.rotation.z = Math.PI / 2; }
+  else if (shape === "crystal") { add(new THREE.OctahedronGeometry(0.16, 0), glow, 0, 0.26, 0).scale.y = 1.6; add(new THREE.OctahedronGeometry(0.09, 0), glow, 0.14, 0.14, 0.05).scale.y = 1.5; }
+  else if (shape === "ore") { add(new THREE.DodecahedronGeometry(0.15, 0), glow, 0, 0.15, 0); add(new THREE.DodecahedronGeometry(0.09, 0), glow, 0.14, 0.08, 0.06); }
+  else if (shape === "wheel") { add(new THREE.CylinderGeometry(0.2, 0.2, 0.14, 16), glow, 0, 0.09, 0); }
+  else if (shape === "cone") { add(new THREE.ConeGeometry(0.1, 0.26, 8), glow, 0, 0.16, 0); }
+  else if (shape === "flag") { add(new THREE.CylinderGeometry(0.015, 0.015, 0.7, 6), sm("#5a3a24"), 0, 0.35, 0); const f = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.2), new THREE.MeshStandardMaterial({ color: col, side: THREE.DoubleSide })); g.add(at(f, 0.15, 0.58, 0)); }
+  else if (shape === "jar") { add(new THREE.SphereGeometry(0.15, 12, 10), glow, 0, 0.16, 0); add(new THREE.CylinderGeometry(0.06, 0.08, 0.1, 10), glow, 0, 0.32, 0); }
+  else if (shape === "herb") { for (let i = 0; i < 5; i++) { const c = add(new THREE.ConeGeometry(0.04, 0.3, 5), glow, Math.cos(i * 1.3) * 0.06, 0.15, Math.sin(i * 1.3) * 0.06); c.rotation.z = Math.cos(i * 1.3) * 0.3; } }
+  else add(new THREE.SphereGeometry(0.14, 14, 10), glow, 0, 0.16, 0);
+  const halo = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.32, 20), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false }));
+  halo.rotation.x = -Math.PI / 2; g.add(at(halo, 0, 0.02, 0));
+  return g;
+}
+function makeGate(style, cx, gy) {
+  if (style === "ronces") return makeBrambles(cx - 1, gy);
+  const g = new THREE.Group();
+  if (style === "glace") {
+    const m = new THREE.MeshStandardMaterial({ color: "#bfe8ff", emissive: "#3f9fdf", emissiveIntensity: 0.25, transparent: true, opacity: 0.78, roughness: 0.1 });
+    for (let x = cx - 1; x <= cx + 1; x++) for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.7 + rnd01() * 0.3, 0.8 + rnd01() * 0.7, 0.6), m); b.castShadow = true; b.rotation.set(rnd01() * 0.2, rnd01(), rnd01() * 0.2); g.add(at(b, x + (rnd01() - .5) * 0.3, 0.4 + i * 0.55, gy)); }
+    return g;
+  }
+  const bar = style === "gres" ? mat("#c8a070") : mat("#2a2a30"), rune = sm(style === "gres" ? "#f0c04a" : "#ff5a1a", { em: style === "gres" ? "#f0a020" : "#ff3a10", ei: 1 });
+  [cx - 1.6, cx + 1.6].forEach(x => g.add(at(box(0.5, 2.6, 0.6, bar), x, 1.3, gy)));
+  g.add(at(box(3.7, 0.4, 0.6, bar), cx, 2.6, gy));
+  for (let i = 0; i < 7; i++) g.add(at(box(0.09, 2.2, 0.09, bar), cx - 1.2 + i * 0.4, 1.1, gy));
+  [0.6, 1.5].forEach(y => g.add(at(box(2.8, 0.08, 0.1, bar), cx, y, gy)));
+  [-0.8, 0, 0.8].forEach(o => g.add(at(new THREE.Mesh(new THREE.OctahedronGeometry(0.1, 0), rune), cx + o, 2.6, gy + 0.32)));
+  return g;
+}
+function genBuild(scene) {
+  const L = LV, E = L.E, B = L.B;
+  F.fire = makeCampfire(); at(F.fire, E.fire.x, 0, E.fire.y); scene.add(F.fire);
+  const walls = []; for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (MAP[y][x] === "S") walls.push({ x, y, h: 0.45 + ((x * 7 + y * 13) % 5) * 0.24, r: ((x * 5 + y * 3) % 7 - 3) * 0.04 });
+  scene.add(instanced(new THREE.BoxGeometry(1, 1, 1), mat("#ffffff"), walls, t => ({ p: [t.x, t.h / 2, t.y], s: [0.94, t.h, 0.94], ry: t.r, c: B.stone[(t.x + t.y) % 3] })));
+  const rubble = []; walls.forEach(t => { for (let i = 0; i < 2; i++) rubble.push({ x: t.x + (rnd01() - .5) * 1.6, y: t.y + (rnd01() - .5) * 1.6, s: 0.12 + rnd01() * 0.14 }); });
+  scene.add(instanced(new THREE.DodecahedronGeometry(1, 0), mat(B.stone[0]), rubble, b => ({ p: [b.x, heightAt(b.x, b.y) + b.s * 0.4, b.y], s: [b.s, b.s * 0.8, b.s], ry: rnd01() * 3 })));
+  E.corners.forEach((c, i) => { const col = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 2.2 - i * 0.35, 10), mat(B.stone[2], { flat: false })); col.castShadow = true; scene.add(at(col, c.x, (2.2 - i * 0.35) / 2, c.y)); });
+  scene.add(instanced(new THREE.BoxGeometry(1, 0.1, 1), mat(B.moss), walls.filter(t => (t.x * 3 + t.y) % 4 === 0), t => ({ p: [t.x, t.h + 0.04, t.y], s: [1.02, 1, 1.02] })));
+  F.braz = E.braziers.map(b => { const g = makeBrazier(); at(g, b.x, 0, b.y); scene.add(g); return g; });
+  F.vaultDoor = at(box(0.95, 1.7, 0.25, mat("#5e554c")), E.door.x, 0.85, E.door.y); scene.add(F.vaultDoor);
+  [-0.25, 0, 0.25].forEach(o => F.vaultDoor.add(at(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.16, 6), mat("#7fd4ff", { em: "#3fa4df", ei: 0.6 })), o, 0.3, 0.14)));
+  const chest = makeChest(); at(chest, E.chest.x, 0, E.chest.y); chest.rotation.y = Math.PI; scene.add(chest); F.chestLid = chest.userData.lid;
+  F.bridge2 = makeBridge2(E.bx, E.rv, B.wood[0], B.wood[1]); scene.add(F.bridge2);
+  F.brambles = makeGate(B.gate, E.cx, 14); scene.add(F.brambles);
+  const arch = makeArch(); at(arch, E.arch.x, 0, E.arch.y + 0.3); scene.add(arch); F.archVeil = arch.userData.veil;
+  // repère près de la gardienne de la zone sauvage
+  const lm = new THREE.Group(), sx = E.sage.x - 1.3 * E.side, sz = E.sage.y - 1.2;
+  if (B.key === "bois") lm.add(makeWillow(L.n === 4 ? "#f0a0c0" : "#5a9a4a", L.n === 4 ? "#f6c0d8" : "#4a8a3a"));
+  else if (B.key === "neige") { const m = new THREE.MeshStandardMaterial({ color: "#bff0ff", emissive: "#3fa4df", emissiveIntensity: 0.4, transparent: true, opacity: 0.85, roughness: 0.1 }); [[0, 0, 2.2], [0.5, 0.3, 1.4], [-0.4, -0.3, 1.1]].forEach(([x, z, h]) => { const c = new THREE.Mesh(new THREE.OctahedronGeometry(0.4, 0), m); c.scale.set(1, h * 1.4, 1); c.castShadow = true; lm.add(at(c, x, h * 0.55, z)); }); }
+  else if (B.key === "sable") [[0, 0, 0.3], [0.9, 0.4, -0.4], [-0.7, 0.5, 0.5]].forEach(([x, z, lean]) => { const p = new THREE.Group(); for (let i = 0; i < 6; i++) p.add(at(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 0.42, 7), mat("#8a6a40")), Math.sin(lean) * i * 0.12, 0.21 + i * 0.4, 0)); for (let i = 0; i < 6; i++) { const lf = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.3, 4), addWind(mat("#4a8a30"), 0.5)); lf.rotation.z = Math.PI / 2 + 0.5; lf.rotation.y = i; const w = new THREE.Group(); w.rotation.y = i * 1.05; w.add(at(lf, 0.55, 0, 0)); p.add(at(w, Math.sin(lean) * 0.72, 2.45, 0)); } lm.add(at(p, x, 0, z)); });
+  else { const m = mat("#1e1a24"), gl = sm("#ff6a1a", { em: "#ff4a10", ei: 1.4 }); [[0, 0, 2.6], [0.6, 0.3, 1.6], [-0.5, -0.2, 1.2]].forEach(([x, z, h]) => { const c = new THREE.Mesh(new THREE.ConeGeometry(0.35, h, 5), m); c.castShadow = true; lm.add(at(c, x, h / 2, z)); lm.add(at(new THREE.Mesh(new THREE.BoxGeometry(0.05, h * 0.6, 0.05), gl), x + 0.12, h * 0.35, z + 0.2)); }); }
+  at(lm, sx, heightAt(sx, sz), sz); scene.add(lm);
+  F.picks = E.picks.map(o => { const I = L.PI[o.k], g = makeLoot(I.shape, I.col); at(g, o.x, 0, o.y); scene.add(g); return { p: o, g }; });
+  F.emile = makePerson({ body: B.cloth[2], skin: "#f1c7a0", hair: "#c4702e", scale: 0.62, cheek: "#f0a0a0", dress: !!L.FD.lost.f, tails: !!L.FD.lost.f }); scene.add(F.emile);
+  // petits détails du biome
+  const spots = (k, ch = ".") => { const out = []; for (let y = 15; y < E.campTop - 2; y++) for (let x = 2; x < MW - 2; x++) if (ch.includes(MAP[y][x]) && rnd01() < k) out.push({ x: x + (rnd01() - .5) * .8, y: y + (rnd01() - .5) * .8 }); return out; };
+  if (B.key === "bois") {
+    const sh = spots(0.05);
+    scene.add(instanced(new THREE.CylinderGeometry(0.03, 0.035, 0.12, 6), mat("#efe3c8"), sh, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.06, b.y] })));
+    scene.add(instanced(new THREE.SphereGeometry(0.08, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat("#ffffff", { flat: false }), sh, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.11, b.y], s: [1, 0.7, 1], c: rnd01() < 0.6 ? "#c8473a" : "#8a4fc2" })));
+  } else if (B.key === "neige") {
+    scene.add(instanced(new THREE.SphereGeometry(0.5, 12, 8), mat("#f4f8fc", { flat: false }), spots(0.04, ".,"), b => ({ p: [b.x, heightAt(b.x, b.y) - 0.18, b.y], s: [1.2 + rnd01(), 0.5, 1 + rnd01()], ry: rnd01() * 3 })));
+    scene.add(instanced(new THREE.OctahedronGeometry(0.09, 0), mat("#bff0ff", { em: "#3fa4df", ei: 0.5 }), spots(0.015), b => ({ p: [b.x, heightAt(b.x, b.y) + 0.12, b.y], s: [1, 2, 1], ry: rnd01() * 3 })));
+  } else if (B.key === "sable") {
+    const cac = spots(0.025);
+    scene.add(instanced(new THREE.CylinderGeometry(0.1, 0.12, 0.9, 8), mat("#4a8a40", { flat: false }), cac, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.45, b.y] })));
+    scene.add(instanced(new THREE.CylinderGeometry(0.06, 0.07, 0.4, 7), mat("#4a8a40", { flat: false }), cac, b => ({ p: [b.x + 0.16, heightAt(b.x, b.y) + 0.62, b.y], ry: rnd01() * 3 })));
+    scene.add(instanced(new THREE.CylinderGeometry(0.025, 0.025, 0.3, 5), mat("#efe6d0"), spots(0.012), b => ({ p: [b.x, heightAt(b.x, b.y) + 0.03, b.y], ry: rnd01() * 3, s: [1, 1, 1] })));
+  } else {
+    const cr = new THREE.BoxGeometry(0.5, 0.02, 0.06);
+    scene.add(instanced(cr, mat("#ff6a1a", { em: "#ff4a10", ei: 1.6 }), spots(0.06, ".,f"), b => ({ p: [b.x, heightAt(b.x, b.y) + 0.012, b.y], ry: rnd01() * 3, s: [0.6 + rnd01(), 1, 1] })));
+    scene.add(instanced(new THREE.OctahedronGeometry(0.14, 0), mat("#1e1a24"), spots(0.02), b => ({ p: [b.x, heightAt(b.x, b.y) + 0.1, b.y], s: [1, 1.8, 1], ry: rnd01() * 3 })));
+  }
+  if (L.FD.lanterns || B.key === "cendre") { // lanternes le long des chemins
+    const ls = []; for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (MAP[y][x] === ":" && (x * 7 + y * 11) % 9 === 0) { const ox = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([a, b]) => ".,f".includes(mapC(x + a, y + b))); if (ox) ls.push({ x: x + ox[0] * 0.55, y: y + ox[1] * 0.55 }); }
+    scene.add(instanced(new THREE.BoxGeometry(0.07, 1.3, 0.07), mat("#3b2a1e"), ls, b => ({ p: [b.x, heightAt(b.x, b.y) + 0.65, b.y] })));
+    scene.add(instanced(new THREE.IcosahedronGeometry(0.12, 0), mat("#fff3b0", { em: B.key === "cendre" ? "#ff8a3a" : "#f0b030", ei: 1.5 }), ls, b => ({ p: [b.x, heightAt(b.x, b.y) + 1.35, b.y] })));
+  }
+}
+function genDraw(now, dt, h) {
+  const L = LV, q = QF(L.id), E = L.E;
+  F.picks.forEach(({ p, g }) => { g.visible = !q.got.includes(p.id); if (g.visible) { g.position.y = heightAt(p.x, p.y) + 0.05 + Math.sin(now / 450 + p.x) * 0.04; g.rotation.y = now / 1400 + p.y; } });
+  F.braz.forEach((b, i) => { const on = q.fires.includes(i); b.userData.flame.visible = on; if (on) b.userData.flame.scale.set(1, 0.85 + Math.sin(now / 90 + i) * 0.15, 1); });
+  F.vaultDoor.visible = q.fires.length < 3;
+  F.chestLid.rotation.x = q.chest ? -1.2 : 0;
+  F.bridge2.children.forEach(o => { if (o.userData.mid) o.visible = q.bridge; });
+  F.brambles.visible = !q.mini;
+  F.archVeil.material.color.set(q.boss ? "#a7e1ff" : "#f0c04a"); F.archVeil.material.opacity = 0.45 + Math.sin(now / 500) * 0.15;
+  F.fire.userData.flame.scale.set(1, 0.85 + Math.sin(now / 80) * 0.12 + Math.sin(now / 37) * 0.05, 1);
+  if (q.lost === 0) { F.emile.position.set(E.lost.x, heightAt(E.lost.x, E.lost.y), E.lost.y); F.emile.rotation.y = Math.sin(now / 700) * 0.6; }
+  else if (q.lost === 1) follow(F.emile, h);
+  else { F.emile.position.set(E.chef.x - 0.8, heightAt(E.chef.x, E.chef.y), E.chef.y + 0.5); F.emile.rotation.y = 0.4; }
+}
+for (let n = 3; n <= 20; n++) LEVELS["e" + n] = genFloor(n);
+
+/* ---- Haltes des paliers 10, 15 et 20 : même belvédère, autre décor ---- */
+function makeHalte(n) {
+  const B = BIOMES[Math.ceil(n / 5)], names = HALTES[n];
+  const L = Object.defineProperties({}, Object.getOwnPropertyDescriptors(LEVELS.h5));
+  const NP = { isaure: { ...NPCS_H.isaure, name: names[0] }, mira: { ...NPCS_H.mira, name: names[1] }, hugo: { ...NPCS_H.hugo, name: names[2] } };
+  Object.assign(L, { id: "h" + n, name: `Halte du palier ${n} · ${B.halte}`, NPCS: NP, loading: `Chargement : ${B.halte.toLowerCase()}…`,
+    groundCol: c => ({ s: [0.66, 0.62, 0.54], ":": [0.76, 0.68, 0.52] })[c] || B.ground[c] || ("To".includes(c) ? B.ground["."] : undefined), pal: { ...B.pal, cliffUp: -0.8, rock: B.pal.rock || "#b8ae9a", rock2: B.pal.rock2 || "#c4baa4" }, farCol: B.farCol, sky: B.sky, mmCol: B.mm,
+    looks: { isaure: { ...LEVELS.h5.looks.isaure }, mira: { ...LEVELS.h5.looks.mira, body: B.cloth[1] }, hugo: { ...LEVELS.h5.looks.hugo } } });
+  return L;
+}
+[10, 15, 20].forEach(n => { LEVELS["h" + n] = makeHalte(n); });
+
 useLevel("e1");
 
 /* ================= Événements ================= */
@@ -2985,8 +3682,8 @@ document.addEventListener("click", e => {
     case "buy-item": { const s = G.shop && G.shop.items.find(x => x.id === id); if (s && G.gold >= buyPrice(s)) { G.gold -= buyPrice(s); G.shop.items = G.shop.items.filter(x => x !== s); giveItem(s); toast(`${esc(s.name)} ${G.equip[s.slot] === s.id ? "équipé" : "dans ton sac"}`); } break; }
     case "repair": { const it = itemById(id); if (it && G.gold >= repairCost(it)) { G.gold -= repairCost(it); it.dur = it.durMax; toast(`${esc(it.name)} réparé`); } break; }
     case "repair-all": { const c = repairAllCost(); if (c && G.gold >= c) { G.gold -= c; G.items.forEach(i => { i.dur = i.durMax; }); toast("Tout ton équipement est réparé"); } break; }
-    case "use-potion": if (G.potions) { G.potions--; G.hp = Math.min(maxHp(), (G.hp ?? maxHp()) + POTION_HEAL); } break;
-    case "use-elixir": if (G.elixirs) { G.elixirs--; G.hp = Math.min(maxHp(), (G.hp ?? maxHp()) + ELIXIR_HEAL); } break;
+    case "use-potion": if (G.potions) { G.potions--; G.hp = Math.min(maxHp(), (G.hp ?? maxHp()) + potHeal()); } break;
+    case "use-elixir": if (G.elixirs) { G.elixirs--; G.hp = Math.min(maxHp(), (G.hp ?? maxHp()) + elxHeal()); } break;
     case "use-kit": if (G.kits) { G.kits--; ["weapon", "armor", "charm"].forEach(sl => { const it = eq(sl); if (it) it.dur = Math.min(it.durMax, it.dur + KIT_FIX); }); toast("Équipement rafistolé"); } break;
     case "heal": healAtFountain(); return;
     case "enter": closeSheet(); enterLevel(id); return;
@@ -3047,12 +3744,13 @@ function essaiEdit(fn) {
 }
 const essaiPause = d => { d.timer = { preset: "equilibre", phase: "pause", kind: "short", duration: 15 * 60000, startedAt: Date.now(), endAt: Date.now() + 15 * 60000, remaining: null, sinceLong: 0, earned: null }; };
 // Aperçu : un héros équipé comme après l'étage 1, pour essayer directement l'étage 2 ou la Halte
-function essaiKit() {
-  if (G.items.length) return;
-  [makeItem(2, "weapon", 1), makeItem(1, "armor", 1), makeItem(1, "charm", 1)].forEach(giveItem);
-  G.train = Math.max(G.train, 2); G.potions = Math.max(G.potions, 3); G.elixirs = Math.max(G.elixirs, 1); G.gold = Math.max(G.gold, 60);
+function essaiKit(id) {
+  const t = Math.max(1, levelNum(id) - 1), w = eq("weapon");
+  if (w && (w.tier || 1) >= t - 1) return;
+  [makeItem(2, "weapon", t), makeItem(1, "armor", t), makeItem(1, "charm", t)].forEach(it => { giveItem(it); G.equip[it.slot] = it.id; });
+  G.train = Math.max(G.train, Math.min(maxTrain(), 2 + Math.floor(t / 2))); G.potions = Math.max(G.potions, 3); G.elixirs = Math.max(G.elixirs, 2); G.gold = Math.max(G.gold, 60 + 10 * t);
   G.hp = maxHp(); save();
-  toast("Aperçu : équipement d'un héros qui a fini l'étage 1");
+  toast(`Aperçu : équipement d'un héros arrivé à l'étage ${t + 1}`);
 }
 function renderEssai() {
   const el = $("#essai"); if (!el) return;
@@ -3065,7 +3763,7 @@ function renderEssai() {
     <button class="btn small ghost" data-act="essai-end">Finir la pause</button>
     <button class="btn small ghost" data-act="essai-reset">Tout recommencer</button>
     <label for="essai-tp" class="muted">Aller à</label>
-    <select id="essai-tp"><option value="">…</option><option value="e1">Étage 1</option><option value="e2">Étage 2</option><option value="h5">Halte 5</option></select>
+    <select id="essai-tp"><option value="">…</option>${Object.keys(LEVELS).sort((a, b) => levelNum(a) - levelNum(b) || (a[0] === "e" ? -1 : 1)).map(id => `<option value="${id}">${id[0] === "h" ? "Halte " : "Étage "}${levelNum(id)}</option>`).join("")}</select>
     <button class="btn small" data-act="essai-gold">+100 or</button>`;
 }
 if (ESSAI) {
@@ -3074,7 +3772,7 @@ if (ESSAI) {
   renderEssai();
   document.addEventListener("change", e => {
     if (e.target.id === "essai-rank") { essaiEdit(d => { d.xp = +e.target.value; }); if (!F) render(); renderEssai(); }
-    if (e.target.id === "essai-tp" && e.target.value) { const id = e.target.value; e.target.value = ""; if (locked) essaiEdit(essaiPause); G.energy = Math.max(G.energy, 6); G.best = Math.max(G.best, levelNum(id)); if (id === "h5") G.ckpt = Math.max(G.ckpt, 5); if (id !== "e1") essaiKit(); closeSheet(); C = null; G.lv = null; enterLevel(id); renderHUD(); }
+    if (e.target.id === "essai-tp" && e.target.value) { const id = e.target.value; e.target.value = ""; if (locked) essaiEdit(essaiPause); G.energy = Math.max(G.energy, 6); G.best = Math.max(G.best, levelNum(id)); if (id[0] === "h") G.ckpt = Math.max(G.ckpt, levelNum(id)); if (id !== "e1") essaiKit(id); closeSheet(); C = null; G.lv = null; enterLevel(id); renderHUD(); }
   });
   document.addEventListener("click", e => {
     const b = e.target.closest("[data-act^=essai]"); if (!b) return;
